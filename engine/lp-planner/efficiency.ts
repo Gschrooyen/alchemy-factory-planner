@@ -1,62 +1,38 @@
 import { PlannerConfig } from "../types";
-import { EfficiencyContext, ALCHEMY_MACHINES } from "./types";
+import { EfficiencyContext, ALCHEMY_MACHINES, THERMAL_EXTRACTOR } from "./types";
+import { attributeMultiplier, attributeValue } from "../attributes";
 
 /**
- * Calculate alchemy skill bonus percentage
- * Levels 1-2: +6% per level
- * Levels 3-8: +8% per level
- * Levels 9+: +10% per level
+ * Research bonuses, read straight from the game's DT_Attributes / DT_Improvements ladders
+ * (see engine/attributes.ts). Each returns a fraction, so level 0 is 0.
  */
 export function calculateAlchemyBonus(level: number): number {
-  if (level <= 2) return level * 0.06;
-  if (level <= 8) return (2 * 0.06) + ((level - 2) * 0.08);
-  return (2 * 0.06) + (6 * 0.08) + ((level - 8) * 0.10);
+  return attributeMultiplier("ExtractorSkill", level) - 1;
 }
 
-/**
- * Calculate throwing efficiency bonus percentage
- * Levels 1-12: +25% per level
- * Levels 13+: +5% per level
- */
-export function calculateThrowingBonus(level: number): number {
-  if (level <= 12) return level * 0.25;
-  return (12 * 0.25) + ((level - 12) * 0.05);
+/** Catapult throughput in items/min (base 60, +15/level, +3/level past 12). */
+export function calculateCatapultRate(level: number): number {
+  return attributeValue("CatapultSpeed", level);
 }
 
-/**
- * Calculate sales ability bonus percentage
- * Levels 1-2: +3% per level
- * Levels 3-4: +4% per level
- * Levels 5-6: +5% per level
- * Levels 7-8: +6% per level
- * Levels 9-10: +7% per level
- * Levels 11+: +10% per level
- */
+/** Shop profit bonus (StoreProfit: +10% per level, 4 levels). */
 export function calculateSalesBonus(level: number): number {
-  if (level <= 2) return level * 0.03;
-  if (level <= 4) return (2 * 0.03) + ((level - 2) * 0.04);
-  if (level <= 6) return (2 * 0.03) + (2 * 0.04) + ((level - 4) * 0.05);
-  if (level <= 8) return (2 * 0.03) + (2 * 0.04) + (2 * 0.05) + ((level - 6) * 0.06);
-  if (level <= 10) return (2 * 0.03) + (2 * 0.04) + (2 * 0.05) + (2 * 0.06) + ((level - 8) * 0.07);
-  return (2 * 0.03) + (2 * 0.04) + (2 * 0.05) + (2 * 0.06) + (2 * 0.07) + ((level - 10) * 0.10);
+  return attributeMultiplier("StoreProfit", level) - 1;
 }
 
-/**
- * Calculate customer management bonus percentage
- * Levels 1-2: +6% per level
- * Levels 3-4: +8% per level
- * Levels 5-6: +10% per level
- * Levels 7-8: +12% per level
- * Levels 9-10: +14% per level
- * Levels 11+: +20% per level
- */
-export function calculateCustomerMgmtBonus(level: number): number {
-  if (level <= 2) return level * 0.06;
-  if (level <= 4) return (2 * 0.06) + ((level - 2) * 0.08);
-  if (level <= 6) return (2 * 0.06) + (2 * 0.08) + ((level - 4) * 0.10);
-  if (level <= 8) return (2 * 0.06) + (2 * 0.08) + (2 * 0.10) + ((level - 6) * 0.12);
-  if (level <= 10) return (2 * 0.06) + (2 * 0.08) + (2 * 0.10) + (2 * 0.12) + ((level - 8) * 0.14);
-  return (2 * 0.06) + (2 * 0.08) + (2 * 0.10) + (2 * 0.12) + (2 * 0.14) + ((level - 10) * 0.20);
+/** Quest reward bonus (QuestProfit). */
+export function calculateQuestProfitBonus(level: number): number {
+  return attributeMultiplier("QuestProfit", level) - 1;
+}
+
+/** Contract volume bonus (ContractNum: +60% per level, 5 levels). */
+export function calculateContractBonus(level: number): number {
+  return attributeValue("ContractNum", level) / 100;
+}
+
+/** Relic withdrawal bonus (AltarEfficiency: +10% per level). */
+export function calculateAltarBonus(level: number): number {
+  return attributeValue("AltarEfficiency", level) / 100;
 }
 
 /**
@@ -64,32 +40,23 @@ export function calculateCustomerMgmtBonus(level: number): number {
  * Extracts all multipliers that affect production rates.
  */
 export function buildEfficiencyContext(config: PlannerConfig): EfficiencyContext {
-  // Factory Efficiency: +25% per level up to 12, then +5% per level (capped at 92)
-  const factoryLevel = Math.min(92, config.factoryEfficiency);
-  const speedMultiplier = factoryLevel <= 12
-    ? 1 + factoryLevel * 0.25
-    : 1 + (12 * 0.25) + ((factoryLevel - 12) * 0.05);
+  // All four multipliers come from the game's own improvement ladders
+  const speedMultiplier = attributeMultiplier("FactorySpeed", config.factoryEfficiency);
+  const alchemyMultiplier = attributeMultiplier("ExtractorSkill", config.alchemySkill);
+  const fuelMultiplier = attributeMultiplier("FuelEfficiency", config.fuelEfficiency);
+  const fertilizerMultiplier = attributeMultiplier("FertilizerEfficiency", config.fertilizerEfficiency);
 
-  // Alchemy Skill: Tiered progression
-  const alchemyMultiplier = 1 + calculateAlchemyBonus(config.alchemySkill);
+  const thermalYieldMultiplier = calculateThermalYieldMultiplier(config.thermalExtractorFloors ?? 0);
 
-  // Fuel Efficiency: +10% per level
-  const fuelMultiplier = 1 + config.fuelEfficiency * 0.1;
-
-  // Fertilizer Efficiency: +10% per level
-  const fertilizerMultiplier = 1 + config.fertilizerEfficiency * 0.1;
-
-  // Logistics: +15/min per level up to 12, then +3/min per level (capped at 92)
-  const logisticsLevel = Math.min(92, config.logisticsEfficiency);
-  const beltLimit = logisticsLevel <= 12
-    ? 60 + logisticsLevel * 15
-    : 60 + (12 * 15) + ((logisticsLevel - 12) * 3);
+  const beltLimit = attributeValue("ConveyerSpeed", config.logisticsEfficiency);
 
   return {
     speedMultiplier,
     alchemyMultiplier,
     fuelMultiplier,
     fertilizerMultiplier,
+    useThermalExtractor: config.useThermalExtractor ?? false,
+    thermalYieldMultiplier,
     beltLimit,
     selectedFuel: config.selectedFuel || "Coal",
     selectedFertilizer: config.selectedFertilizer,
@@ -103,6 +70,27 @@ export function buildEfficiencyContext(config: PlannerConfig): EfficiencyContext
  */
 export function isAlchemyMachine(machineName: string): boolean {
   return ALCHEMY_MACHINES.includes(machineName.toLowerCase());
+}
+
+/**
+ * Thermal Extractor yield bonus from build height.
+ * Game formula (UExtractFacilityComponent::GetProductionMultiplier):
+ *   output *= 1 + clamp(BuiltHeight / 128, 0, 2), BuiltHeight = grid Z units above ground
+ * One storey is 16 grid Z units, so each storey is +12.5%, capped at +200% (16 storeys).
+ */
+export function calculateThermalYieldMultiplier(floors: number): number {
+  return 1 + Math.min(2, Math.max(0, floors) * 0.125);
+}
+
+/**
+ * Combined output quantity multiplier for a machine.
+ * Alchemy skill applies to extractors and alembics; build height only to the Thermal Extractor.
+ */
+export function getOutputMultiplier(machineName: string, ctx: EfficiencyContext): number {
+  const name = machineName.toLowerCase();
+  const alchemy = ALCHEMY_MACHINES.includes(name) ? ctx.alchemyMultiplier : 1;
+  const thermal = name === THERMAL_EXTRACTOR ? ctx.thermalYieldMultiplier : 1;
+  return alchemy * thermal;
 }
 
 /**
@@ -124,11 +112,8 @@ export function calculateOutputRate(
 ): number {
   const effectiveCount = outputCount * (percentage / 100);
 
-  // Apply alchemy multiplier if applicable
-  const alchemyBonus = isAlchemyMachine(machineName) ? ctx.alchemyMultiplier : 1;
-
-  // Items per minute = (count * alchemyBonus / time) * 60 * speedMultiplier
-  return (effectiveCount * alchemyBonus / recipeTime) * 60 * ctx.speedMultiplier;
+  // Items per minute = (count * yield bonuses / time) * 60 * speedMultiplier
+  return (effectiveCount * getOutputMultiplier(machineName, ctx) / recipeTime) * 60 * ctx.speedMultiplier;
 }
 
 /**

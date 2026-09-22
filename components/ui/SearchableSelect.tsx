@@ -17,6 +17,38 @@ interface SearchableSelectProps {
     dropdownClassName?: string; // Class for the dropdown container
 }
 
+interface DropdownStyles {
+    top?: number;
+    bottom?: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+}
+
+const GAP = 4;
+const MAX_HEIGHT = 250;
+const MIN_HEIGHT = 120; // below this it is not worth opening downwards
+const MIN_WIDTH = 200;
+
+/**
+ * Places the dropdown against the viewport (it is position: fixed, so no scroll offsets).
+ * Opens upwards when the trigger sits too close to the bottom edge, and always clamps the
+ * height and the left edge so the menu stays fully on screen.
+ */
+function placeDropdown(rect: DOMRect): DropdownStyles {
+    const spaceBelow = window.innerHeight - rect.bottom - GAP * 2;
+    const spaceAbove = rect.top - GAP * 2;
+    const openUpwards = spaceBelow < MIN_HEIGHT && spaceAbove > spaceBelow;
+
+    const width = Math.min(Math.max(rect.width, MIN_WIDTH), window.innerWidth - GAP * 2);
+    const left = Math.max(GAP, Math.min(rect.left, window.innerWidth - width - GAP));
+    const maxHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, openUpwards ? spaceAbove : spaceBelow));
+
+    return openUpwards
+        ? { bottom: window.innerHeight - rect.top + GAP, left, width, maxHeight }
+        : { top: rect.bottom + GAP, left, width, maxHeight };
+}
+
 export function SearchableSelect({
     options,
     value,
@@ -75,17 +107,11 @@ export function SearchableSelect({
         }
     }, [isOpen]);
 
-    const [dropdownStyles, setDropdownStyles] = useState<{ top: number; left: number; width: number } | null>(null);
+    const [dropdownStyles, setDropdownStyles] = useState<DropdownStyles | null>(null);
 
     const handleOpenChange = (open: boolean) => {
         if (open && containerRef.current) {
-            const rect = containerRef.current.getBoundingClientRect();
-
-            setDropdownStyles({
-                top: rect.bottom + window.scrollY + 4, // +4 for slight gap
-                left: rect.left + window.scrollX,
-                width: rect.width
-            });
+            setDropdownStyles(placeDropdown(containerRef.current.getBoundingClientRect()));
         }
 
         setIsOpen(open);
@@ -144,11 +170,13 @@ export function SearchableSelect({
                     ref={dropdownRef}
                     style={{
                         top: dropdownStyles.top,
+                        bottom: dropdownStyles.bottom,
                         left: dropdownStyles.left,
-                        width: Math.max(dropdownStyles.width, 200)
+                        width: dropdownStyles.width,
+                        maxHeight: dropdownStyles.maxHeight,
                     }}
                     className={cn(
-                        "fixed z-[9999] bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden flex flex-col max-h-[250px]",
+                        "fixed z-[9999] bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden flex flex-col",
                         dropdownClassName
                     )}
                 >

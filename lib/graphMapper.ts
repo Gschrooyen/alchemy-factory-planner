@@ -1,16 +1,28 @@
 
 import { Edge, MarkerType, Node } from "@xyflow/react";
 import { ProductionNode } from "../engine/types";
-import { getLayoutedElements } from "../components/graph/layout";
+import { getLayoutedElements, type LayoutAlgorithm } from "../components/graph/layout";
+import { isLiquid } from "../engine/item-utils";
 
 /**
  * Transforms ProductionNode trees into ReactFlow Nodes and Edges,
  * applies the Dagre layout, and respects saved positions.
  */
-export function generateGraph(
+export interface GraphInputItem {
+    item: string;
+    kind?: "fuel" | "fertilizer";
+}
+
+/** Handle id for an input row; fuel rows get their own so heat edges never share a product row. */
+export function inputHandleId(i: GraphInputItem): string {
+    return i.kind === "fuel" ? `fuel:${i.item}` : i.item;
+}
+
+export async function generateGraph(
     rootNodes: ProductionNode[],
-    savedPositions: Record<string, { x: number; y: number }> = {}
-): { nodes: Node[]; edges: Edge[] } {
+    savedPositions: Record<string, { x: number; y: number }> = {},
+    algorithm: LayoutAlgorithm = "layered"
+): Promise<{ nodes: Node[]; edges: Edge[] }> {
     if (rootNodes.length === 0) return { nodes: [], edges: [] };
 
     // ----------------------------------------------------
@@ -31,8 +43,10 @@ export function generateGraph(
     // Track which consumption reference keys have had their inputs traversed
     // We accumulate rates but only traverse inputs once per key
     const traversedConsumptionKeys = new Set<string>();
+    const edgeItems = new Map<string, string>(); // edgeKey -> item flowing along it
+    const edgeKinds = new Map<string, "fuel" | "fertilizer" | undefined>(); // edgeKey -> heat / fertilizer / product
 
-    function traverse(node: ProductionNode, parentName?: string) {
+    function traverse(node: ProductionNode, parentName?: string, parent?: ProductionNode) {
         // Use explicit ID if available to prevent merging of Source vs Production nodes
         const key = node.id || node.itemName;
 
@@ -53,16 +67,21 @@ export function generateGraph(
         if (node.isConsumptionReference) {
             // Always record the edge for this consumption reference
             if (parentName) {
-                const edgeKey = `${key}___${parentName}`;
+                // Fuel edges get their own key: the same source can feed a node as product AND as heat
+                const edgeKey = `${key}___${parentName}___${node.inputKind ?? ""}`;
                 const currentRate = edgeRates.get(edgeKey) || 0;
                 edgeRates.set(edgeKey, currentRate + node.rate);
+                edgeItems.set(edgeKey, node.itemName);
+                edgeKinds.set(edgeKey, node.inputKind);
             }
 
             // Traverse inputs to show production chain (including circular dependencies)
             // Only traverse inputs once per key to avoid duplicate traversals
             if (!traversedConsumptionKeys.has(key)) {
                 traversedConsumptionKeys.add(key);
-                node.inputs.forEach((input) => traverse(input, parentName));
+                // The reference already recorded the edge to parent; traverse the real source
+                // without a parent so it doesn't record a second (gross-rate) edge.
+                node.inputs.forEach((input) => traverse(input));
             }
             return;
         }
@@ -74,9 +93,12 @@ export function generateGraph(
 
         // Record Relationship & Rate for production nodes (skip if already traversed as consumption ref)
         if (parentName && !traversedConsumptionKeys.has(key)) {
-            const edgeKey = `${key}___${parentName}`;
+            const edgeKey = `${key}___${parentName}___`;
             const currentRate = edgeRates.get(edgeKey) || 0;
-            edgeRates.set(edgeKey, currentRate + node.rate);
+            // Produced inputs share one node object; the consumer records how much IT takes
+            edgeRates.set(edgeKey, currentRate + (parent?.inputRates?.[node.itemName] ?? node.rate));
+            edgeItems.set(edgeKey, node.itemName);
+            edgeKinds.set(edgeKey, node.inputKind);
         }
 
         // Check if we've already processed this exact object
@@ -94,20 +116,27 @@ export function generateGraph(
             existing.deviceCount += node.deviceCount;
             existing.heatConsumption += node.heatConsumption;
             existing.suppliedRate = (existing.suppliedRate || 0) + (node.suppliedRate || 0);
+            node.byproducts.forEach((bp) => {
+                const match = existing.byproducts.find((b) => b.itemName === bp.itemName);
+                if (match) {
+                    match.rate += bp.rate;
+                    match.remaining = (match.remaining ?? match.rate) + (bp.remaining ?? bp.rate);
+                } else existing.byproducts.push({ ...bp });
+            });
             // Recalculate saturation based on total rate
-            existing.isBeltSaturated = existing.rate > (existing.beltLimit || 60);
+            existing.isBeltSaturated = !isLiquid(existing.itemName) && existing.rate > (existing.beltLimit || 60) * (1 + 1e-6);
 
             // DEBUG: Log accumulation
             if (key.toLowerCase().includes("plank") || key.toLowerCase().includes("woodboard")) {
                 console.log("[GraphMapper] Accumulating node:", key, "old:", existing.rate - node.rate, "adding:", node.rate, "new total:", existing.rate);
             }
         } else {
-            mergedNodes.set(key, { ...node, inputs: [], byproducts: [] });
+            mergedNodes.set(key, { ...node, inputs: [], byproducts: node.byproducts.map((bp) => ({ ...bp })) });
         }
 
         // Mark as visiting, recurse, then unmark
         visiting.add(key);
-        node.inputs.forEach((input) => traverse(input, key));
+        node.inputs.forEach((input) => traverse(input, key, node));
         visiting.delete(key);
     }
 
@@ -136,6 +165,17 @@ export function generateGraph(
     });
 
     // Create React Flow Nodes (Production Network)
+    // Per node: distinct items flowing in (one target handle each, so edges land on separate rows)
+    const inputItemsByNode = new Map<string, GraphInputItem[]>();
+    edgeItems.forEach((item, edgeKey) => {
+        const target = edgeKey.split("___")[1];
+        const list = inputItemsByNode.get(target) || [];
+        const kind = edgeKinds.get(edgeKey);
+        // Same item can be both product input and fuel (Plank -> Charcoal in a crucible): separate rows
+        if (!list.some((i) => i.item === item && i.kind === kind)) list.push({ item, kind });
+        inputItemsByNode.set(target, list);
+    });
+
     const rfNodes: Node[] = Array.from(mergedNodes.values()).map((n) => {
         const nodeKey = n.id || n.itemName;
 
@@ -164,6 +204,7 @@ export function generateGraph(
             type: "custom",
             data: {
                 ...n,
+                inputItems: inputItemsByNode.get(nodeKey) || [],
                 // Only set displayRate if we calculated it (and LP didn't provide netOutputRate)
                 ...(displayRate !== undefined && { displayRate }),
             } as unknown as Record<string, unknown>,
@@ -176,22 +217,28 @@ export function generateGraph(
 
     edgeRates.forEach((rate, key) => {
         const [source, target] = key.split("___");
+        const kind = edgeKinds.get(key);
+        const isFuel = kind === "fuel";
+        const color = isFuel ? "#EF4444" : "#F59E0B"; // heat edges red, product edges gold
 
         rfEdges.push({
             id: key,
             source,
             target,
+            // Heat/fertilizer fan out from one source to every machine; hidden by default and kept out of the layout
+            data: { utility: !!kind },
+            targetHandle: inputHandleId({ item: edgeItems.get(key)!, kind: edgeKinds.get(key) }),
             animated: true,
             type: "smoothstep",
-            markerEnd: { type: MarkerType.ArrowClosed, color: "#F59E0B" },
-            style: { stroke: "#F59E0B", strokeWidth: 2 },
+            markerEnd: { type: MarkerType.ArrowClosed, color },
+            style: { stroke: color, strokeWidth: 2, ...(isFuel && { strokeDasharray: "2 4" }) },
 
             // --- Label Logic ---
             label: `${rate.toLocaleString(undefined, {
                 minimumFractionDigits: 1,
                 maximumFractionDigits: 2,
             })}/m`,
-            labelStyle: { fill: "#fbbf24", fontWeight: 700, fontSize: 11 },
+            labelStyle: { fill: isFuel ? "#f87171" : "#fbbf24", fontWeight: 700, fontSize: 11 },
             labelBgStyle: { fill: "#1c1917", fillOpacity: 0.8 },
             labelBgPadding: [4, 2],
             labelBgBorderRadius: 4,
@@ -202,6 +249,7 @@ export function generateGraph(
     // Output / Target Nodes
     // ----------------------------------------------------
     rootNodes.forEach((root, idx) => {
+        if (root.isOrphanRoot) return; // no target node: it's surplus, shown on the node itself
         const targetId = `target-${root.itemName}-${idx}`;
         // Use netOutputRate if available (for LP planner with loops), otherwise use rate
         const outputRate = root.netOutputRate ?? root.rate;
@@ -245,8 +293,47 @@ export function generateGraph(
         });
     });
 
+    // ----------------------------------------------------
+    // Byproduct Output Nodes (secondary recipe outputs, e.g. Plank from sawing Rotten Log)
+    // ----------------------------------------------------
+    mergedNodes.forEach((node, key) => {
+        node.byproducts.forEach((bp) => {
+            if (bp.rate < 0.01) return;
+            const bpId = `${key}-byproduct-${bp.itemName}`;
+            rfNodes.push({
+                id: bpId,
+                type: "custom",
+                data: {
+                    itemName: bp.itemName,
+                    rate: bp.remaining ?? bp.rate, // what is left after internal use
+                    isRaw: false,
+                    deviceCount: 0,
+                    heatConsumption: 0,
+                    inputs: [],
+                    byproducts: [],
+                    isByproduct: true,
+                } as unknown as Record<string, unknown>,
+                position: { x: 0, y: 0 },
+            });
+            rfEdges.push({
+                id: `${key}-${bpId}`,
+                source: key,
+                target: bpId,
+                animated: true,
+                type: "smoothstep",
+                markerEnd: { type: MarkerType.ArrowClosed, color: "#A78BFA" },
+                style: { stroke: "#A78BFA", strokeWidth: 2, strokeDasharray: "5 5" },
+                label: `${bp.rate.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })}/m`,
+                labelStyle: { fill: "#c4b5fd", fontWeight: 700, fontSize: 11 },
+                labelBgStyle: { fill: "#1c1917", fillOpacity: 0.8 },
+                labelBgPadding: [4, 2],
+                labelBgBorderRadius: 4,
+            });
+        });
+    });
+
     // Apply Layout (Dagre) -> Get default positions
-    const layouted = getLayoutedElements(rfNodes, rfEdges);
+    const layouted = await getLayoutedElements(rfNodes, rfEdges, algorithm);
 
     // Override with Saved Positions
     const nodesWithSavedPositions = layouted.nodes.map((node) => {

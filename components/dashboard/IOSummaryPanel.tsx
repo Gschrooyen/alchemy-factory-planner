@@ -42,7 +42,7 @@ export function IOSummaryPanel({ stats, ioSummary }: IOSummaryPanelProps) {
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar max-h-[160px] grid grid-cols-2 gap-4">
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar grid grid-cols-2 gap-4 content-start">
                 {/* Inputs */}
                 <div>
                     <div className="divider-ornate mb-2"></div>

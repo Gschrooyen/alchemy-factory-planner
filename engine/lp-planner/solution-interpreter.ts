@@ -1,18 +1,19 @@
 import { Solution } from "yalps";
 import { PlannerConfig, ProductionNode, Recipe } from "../types";
 import { EfficiencyContext, EPSILON } from "./types";
-import { getItem, getDevice, getRecipeById, getAllRecipes } from "./model-builder";
-import { isAlchemyMachine } from "./efficiency";
-import { normalizeItemId, getEffectiveRecipeTime as effectiveRecipeTime } from "../item-utils";
+import { getItem, getDevice, getRecipeById, getAllRecipes, recipeHeatSpeed } from "./model-builder";
+import { getOutputMultiplier } from "./efficiency";
+import { normalizeItemId, getEffectiveRecipeTime as effectiveRecipeTime, resolveMachineName, isNurseryMachine, recipeNutrients } from "../item-utils";
 
 /** Nursery cycle time depends on the selected fertilizer (see item-utils). */
 function getEffectiveRecipeTime(recipe: Recipe, ctx: EfficiencyContext): number {
-  return effectiveRecipeTime(recipe, ctx.selectedFertilizer, ctx.fertilizerMultiplier);
+  return effectiveRecipeTime(recipe, ctx.selectedFertilizer, ctx.fertilizerMultiplier, ctx.beltLimit, ctx.speedMultiplier);
 }
 
 interface ItemFlow {
   produced: number;
   consumed: number;
+  burned: number; // part of `consumed` that is fuel for heat
   sources: Array<{ recipeId: string; rate: number }>;
   consumers: Array<{ recipeId: string; rate: number }>;
 }
@@ -34,6 +35,8 @@ export function interpretSolution(
   // Extract active recipes and raw material purchases
   const recipeActivations = new Map<string, number>();
   const rawPurchases = new Map<string, number>();
+  const supplied = new Map<string, number>(); // itemId -> items/min drawn from the user's available resources
+  const burned = new Map<string, number>(); // fuelId -> items/min burned for heat (burnByproducts mode)
 
   // solution.variables is an array of [varName, value] tuples
   for (const [varName, value] of solution.variables) {
@@ -45,11 +48,28 @@ export function interpretSolution(
     } else if (varName.startsWith("raw_")) {
       const itemName = varName.slice(4); // Remove "raw_" prefix
       rawPurchases.set(itemName, value);
+    } else if (varName.startsWith("burn_")) {
+      burned.set(varName.slice(5), value);
+    } else if (varName.startsWith("supply_")) {
+      supplied.set(varName.slice(7), value);
     }
   }
 
+  // Which fuels supply heat, and what fraction of total heat each provides.
+  // Without burnByproducts this is just the selected fuel at 100%.
+  const fuelShares: FuelShare[] = [];
+  if (burned.size > 0) {
+    let totalHeat = 0;
+    burned.forEach((rate, fuelId) => { totalHeat += rate * (getItem(fuelId)?.heat_value || 0); });
+    burned.forEach((rate, fuelId) => {
+      fuelShares.push({ fuelId, share: (rate * (getItem(fuelId)?.heat_value || 0)) / totalHeat });
+    });
+  } else {
+    fuelShares.push({ fuelId: normalizeItemId(ctx.selectedFuel), share: 1 });
+  }
+
   // Calculate item flows to understand production network
-  const itemFlows = calculateItemFlows(recipeActivations, ctx);
+  const itemFlows = calculateItemFlows(recipeActivations, ctx, fuelShares);
 
   // Build production nodes for each active recipe's primary output
   const productionNodes = new Map<string, ProductionNode>();
@@ -59,7 +79,7 @@ export function interpretSolution(
     const recipe = getRecipeById(recipeId);
     if (!recipe) return;
 
-    const machineName = recipe.crafted_in?.toLowerCase() || "";
+    const machineName = resolveMachineName(recipe.crafted_in, ctx.useThermalExtractor);
     const device = getDevice(machineName);
 
     // Calculate machine count
@@ -82,8 +102,7 @@ export function interpretSolution(
       const percentage = output.percentage
         ? (typeof output.percentage === "string" ? parseFloat(output.percentage) : output.percentage)
         : 100;
-      const alchemyBonus = isAlchemyMachine(machineName) ? ctx.alchemyMultiplier : 1;
-      const rate = activationRate * count * (percentage / 100) * alchemyBonus;
+      const rate = activationRate * count * (percentage / 100) * getOutputMultiplier(machineName, ctx);
       const outputId = output.id || normalizeItemId(output.name);
       outputRates.set(outputId, rate);
     });
@@ -103,12 +122,13 @@ export function interpretSolution(
     let parentFurnaceId: string | undefined;
     let parentFurnaceCount: number | undefined;
 
-    if (device?.heat_consuming_speed && device.category !== "heating") {
+    const heatSpeed = recipeHeatSpeed(recipe, device);
+    if (heatSpeed) {
       // Get parent furnace information
-      const parentFurnace = device.parent ? getDevice(device.parent) : null;
+      const parentFurnace = device?.parent ? getDevice(device.parent) : null;
       const furnaceHeat = parentFurnace?.heat_self || 1; // Default to Stone Stove (1 P/s)
       const furnaceSlots = parentFurnace?.slots || 9; // Default to Stone Stove (9 slots)
-      const deviceSlotsRequired = device.slots_required || 1;
+      const deviceSlotsRequired = device?.slots_required || 1;
 
       // Calculate furnaces needed for this many machines
       // Each furnace has furnaceSlots, each device uses deviceSlotsRequired slots
@@ -117,7 +137,7 @@ export function interpretSolution(
       const furnacesNeeded = Math.ceil(machineCount / devicesPerFurnace - 0.0001); // Small epsilon to handle floating point
 
       // Total heat per second = (furnaces × furnaceHeat + machines × deviceHeat) × speedMult
-      const totalHeatPerSecond = (furnacesNeeded * furnaceHeat + machineCount * device.heat_consuming_speed) * ctx.speedMultiplier;
+      const totalHeatPerSecond = (furnacesNeeded * furnaceHeat + machineCount * heatSpeed) * ctx.speedMultiplier;
 
       // Convert to heat per minute for display
       heatConsumption = totalHeatPerSecond * 60;
@@ -177,22 +197,23 @@ export function interpretSolution(
   config.availableResources?.forEach((res) => {
     const itemId = normalizeItemId(res.item);
     const nodeId = `${itemId}-raw`;
+    const used = supplied.get(itemId) ?? 0; // what the plan actually draws, not the whole allowance
 
     // Only create if not already created from rawPurchases
-    if (!productionNodes.has(nodeId) && res.rate > EPSILON) {
+    if (!productionNodes.has(nodeId) && used > EPSILON) {
       const item = getItem(itemId);
       const node: ProductionNode = {
         id: nodeId,
         itemName: item?.name || res.item,
-        rate: res.rate,
+        rate: used,
         isRaw: true,
         deviceCount: 0,
         heatConsumption: 0,
         inputs: [],
         byproducts: [],
         beltLimit: ctx.beltLimit,
-        isBeltSaturated: res.rate > ctx.beltLimit,
-        suppliedRate: res.rate, // Mark as supplied resource
+        isBeltSaturated: used > ctx.beltLimit,
+        suppliedRate: used, // Mark as supplied resource
       };
 
       productionNodes.set(nodeId, node);
@@ -204,7 +225,7 @@ export function interpretSolution(
     const recipe = getRecipeById(recipeId);
     if (!recipe) return;
 
-    const machineName = (recipe.crafted_in || "").toLowerCase();
+    const machineName = resolveMachineName(recipe.crafted_in, ctx.useThermalExtractor);
     if (machineName !== "nursery") return;
 
     recipe.inputs.forEach((input) => {
@@ -234,7 +255,17 @@ export function interpretSolution(
   });
 
   // Link nodes based on item flow (create input references)
-  linkProductionNodes(productionNodes, recipeActivations, itemFlows, ctx);
+  linkProductionNodes(productionNodes, recipeActivations, itemFlows, ctx, fuelShares);
+
+  // Byproducts: rate is gross, remaining is what is LEFT after internal use (e.g. planks burned for heat)
+  productionNodes.forEach((node) => {
+    node.byproducts.forEach((bp) => {
+      const flow = itemFlows.get(normalizeItemId(bp.itemName));
+      bp.remaining = flow && flow.produced > EPSILON
+        ? bp.rate * Math.max(0, flow.produced - flow.consumed) / flow.produced
+        : bp.rate;
+    });
+  });
 
   // Find and return target roots
   const targets = config.targets?.length
@@ -242,6 +273,18 @@ export function interpretSolution(
     : config.targetItem && config.targetRate
       ? [{ item: config.targetItem, rate: config.targetRate }]
       : [];
+
+  // Surplus: produced beyond internal consumption and targets (from machine overrides)
+  itemFlows.forEach((flow, itemId) => {
+    const targetRate = targets
+      .filter((t) => normalizeItemId(t.item) === itemId)
+      .reduce((sum, t) => sum + t.rate, 0);
+    const surplus = flow.produced - flow.consumed - targetRate;
+    if (surplus <= EPSILON) return;
+    // ponytail: attach to the first producing node; per-recipe split not needed for display
+    const producer = flow.sources[0] && productionNodes.get(`${itemId}-prod-${flow.sources[0].recipeId}`);
+    if (producer) producer.surplus = surplus;
+  });
 
   const roots: ProductionNode[] = [];
   targets.forEach((target) => {
@@ -255,7 +298,9 @@ export function interpretSolution(
         // Calculate NET output rate (produced - consumed internally)
         // This shows actual output available, not gross production
         const flow = itemFlows.get(targetItemId);
-        const netRate = flow ? flow.produced - flow.consumed : node.rate;
+        // Bought units of the item (only ever fuel) cover consumption before produced ones do
+        const bought = rawPurchases.get(targetItemId) || 0;
+        const netRate = flow ? flow.produced - Math.max(0, flow.consumed - bought) : node.rate;
 
         // Create a copy with netOutputRate set for the target edge
         // Keep rate as gross production for the node display
@@ -266,6 +311,24 @@ export function interpretSolution(
         roots.push(rootNode);
       }
     });
+  });
+
+  // Production that doesn't feed any target (e.g. machines run only to use up a byproduct)
+  // would otherwise be invisible: surface it as extra roots.
+  const reachable = new Set<string>();
+  const seen = new Set<ProductionNode>(); // consumption refs share ids with their source, so dedupe by object
+  const visit = (n: ProductionNode) => {
+    if (seen.has(n)) return;
+    seen.add(n);
+    if (n.id) reachable.add(n.id);
+    n.inputs.forEach(visit);
+  };
+  roots.forEach(visit);
+  productionNodes.forEach((node) => {
+    if (node.isRaw || !node.id || reachable.has(node.id)) return;
+    const flow = itemFlows.get(normalizeItemId(node.itemName));
+    roots.push({ ...node, isOrphanRoot: true, netOutputRate: flow ? flow.produced - flow.consumed : node.rate });
+    visit(node);
   });
 
   // If no roots found, something went wrong - return empty
@@ -280,9 +343,12 @@ export function interpretSolution(
 /**
  * Calculate item flows from active recipes
  */
+interface FuelShare { fuelId: string; share: number }
+
 function calculateItemFlows(
   recipeActivations: Map<string, number>,
-  ctx: EfficiencyContext
+  ctx: EfficiencyContext,
+  fuelShares: FuelShare[]
 ): Map<string, ItemFlow> {
   const flows = new Map<string, ItemFlow>();
 
@@ -291,6 +357,7 @@ function calculateItemFlows(
       flows.set(itemName, {
         produced: 0,
         consumed: 0,
+        burned: 0,
         sources: [],
         consumers: [],
       });
@@ -302,7 +369,7 @@ function calculateItemFlows(
     const recipe = getRecipeById(recipeId);
     if (!recipe) return;
 
-    const machineName = recipe.crafted_in?.toLowerCase() || "";
+    const machineName = resolveMachineName(recipe.crafted_in, ctx.useThermalExtractor);
 
     // Track outputs
     recipe.outputs.forEach((output) => {
@@ -313,8 +380,7 @@ function calculateItemFlows(
       const percentage = output.percentage
         ? (typeof output.percentage === "string" ? parseFloat(output.percentage) : output.percentage)
         : 100;
-      const alchemyBonus = isAlchemyMachine(machineName) ? ctx.alchemyMultiplier : 1;
-      const rate = activationRate * count * (percentage / 100) * alchemyBonus;
+      const rate = activationRate * count * (percentage / 100) * getOutputMultiplier(machineName, ctx);
 
       flow.produced += rate;
       flow.sources.push({ recipeId, rate });
@@ -322,7 +388,7 @@ function calculateItemFlows(
 
     // Track inputs
     // Note: Skip seed inputs for nursery recipes (seeds aren't consumed)
-    const isNurseryRecipe = machineName === "nursery";
+    const isNurseryRecipe = isNurseryMachine(machineName);
 
     recipe.inputs.forEach((input) => {
       const itemId = input.id || normalizeItemId(input.name);
@@ -342,7 +408,7 @@ function calculateItemFlows(
 
     // Track nursery fertilizer consumption
     const device = getDevice(machineName);
-    const isNursery = machineName === "nursery";
+    const isNursery = isNurseryMachine(machineName);
 
     if (isNursery && ctx.selectedFertilizer) {
       const fertilizerId = normalizeItemId(ctx.selectedFertilizer);
@@ -359,8 +425,8 @@ function calculateItemFlows(
         const outputCount = typeof recipe.outputs[0].count === "string"
           ? parseFloat(recipe.outputs[0].count)
           : recipe.outputs[0].count;
-        const effectiveNutrientValue = fertilizerItem.nutrient_value;
-        const fertilizerPerActivation = (outputCount * outputItem.required_nutrients) / effectiveNutrientValue;
+        const effectiveNutrientValue = fertilizerItem.nutrient_value * ctx.fertilizerMultiplier; // research boosts value per unit
+        const fertilizerPerActivation = recipeNutrients(recipe) / effectiveNutrientValue; // all outputs (leaf + core)
         const rate = activationRate * fertilizerPerActivation;
 
         flow.consumed += rate;
@@ -369,23 +435,24 @@ function calculateItemFlows(
     }
 
     // Track fuel consumption (parent/child relationship)
-    if (device?.heat_consuming_speed && device.category !== "heating") {
-      const fuelId = normalizeItemId(ctx.selectedFuel);
+    const heatSpeed = recipeHeatSpeed(recipe, device);
+    if (heatSpeed) {
+      fuelShares.forEach(({ fuelId, share }) => {
       const fuelItem = getItem(fuelId);
       if (fuelItem?.heat_value) {
         const flow = getOrCreateFlow(fuelId);
 
         // Get parent furnace information
-        const parentFurnace = device.parent ? getDevice(device.parent) : null;
+        const parentFurnace = device?.parent ? getDevice(device.parent) : null;
         const furnaceHeat = parentFurnace?.heat_self || 1; // Default to Stone Stove (1 P/s)
         const furnaceSlots = parentFurnace?.slots || 9; // Default to Stone Stove (9 slots)
-        const deviceSlotsRequired = device.slots_required || 1;
+        const deviceSlotsRequired = device?.slots_required || 1;
 
         // Heat per second calculation (must match model-builder.ts):
-        // - Device consumes heat at device.heat_consuming_speed P/s
+        // - Device consumes heat at heatSpeed P/s
         // - Device uses fraction of furnace: deviceSlotsRequired / furnaceSlots
         // - Furnace contributes: furnaceHeat × (deviceSlotsRequired / furnaceSlots) P/s
-        const deviceHeatPerSecond = device.heat_consuming_speed * ctx.speedMultiplier;
+        const deviceHeatPerSecond = heatSpeed * ctx.speedMultiplier;
         const furnaceContribution = furnaceHeat * (deviceSlotsRequired / furnaceSlots) * ctx.speedMultiplier;
         const totalHeatPerSecond = deviceHeatPerSecond + furnaceContribution;
 
@@ -393,12 +460,14 @@ function calculateItemFlows(
         const effectiveRecipeTime = getEffectiveRecipeTime(recipe, ctx);
         const timePerActivation = effectiveRecipeTime / ctx.speedMultiplier;
         const heatPerActivation = totalHeatPerSecond * timePerActivation;
-        const fuelPerActivation = heatPerActivation / (fuelItem.heat_value * ctx.fuelMultiplier);
+        const fuelPerActivation = heatPerActivation * share / (fuelItem.heat_value * ctx.fuelMultiplier);
         const rate = activationRate * fuelPerActivation;
 
         flow.consumed += rate;
+        flow.burned += rate;
         flow.consumers.push({ recipeId, rate });
       }
+      });
     }
   });
 
@@ -413,7 +482,8 @@ function linkProductionNodes(
   nodes: Map<string, ProductionNode>,
   recipeActivations: Map<string, number>,
   itemFlows: Map<string, ItemFlow>,
-  ctx: EfficiencyContext
+  ctx: EfficiencyContext,
+  fuelShares: FuelShare[]
 ): void {
   // Track which node IDs we've already added as inputs to prevent duplicates
   const addedInputs = new Map<string, Set<string>>(); // nodeId -> Set of input nodeIds
@@ -456,7 +526,7 @@ function linkProductionNodes(
     const node = nodes.get(nodeId);
     if (!node) return;
 
-    const machineName = recipe.crafted_in?.toLowerCase() || "";
+    const machineName = resolveMachineName(recipe.crafted_in, ctx.useThermalExtractor);
 
     if (!addedInputs.has(nodeId)) {
       addedInputs.set(nodeId, new Set());
@@ -482,11 +552,27 @@ function linkProductionNodes(
           const sourceNodeId = `${sourceOutputId}-prod-${source.recipeId}`;
           const sourceNode = nodes.get(sourceNodeId);
 
-          // Skip if already added or would create self-reference
-          if (!sourceNode || sourceNodeId === nodeId || nodeInputs.has(sourceNodeId)) return;
+          // Skip if already added or would create self-reference. Keyed per item, not per source: one
+          // recipe can feed two different items to the same consumer (Gentian + Gentian Nectar from one nursery)
+          const linkKey = `${sourceNodeId}|${inputId}`;
+          if (!sourceNode || sourceNodeId === nodeId || nodeInputs.has(linkKey)) return;
 
-          nodeInputs.add(sourceNodeId);
-          node.inputs.push(createInputReference(sourceNode, inputRate, inputId));
+          nodeInputs.add(linkKey);
+          // Each consumer gets its own reference carrying ITS share of the flow, so edge labels
+          // show consumption rather than the source's gross production. Byproduct inputs hang
+          // off the byproduct node (id must match graphMapper).
+          const share = flow.produced > EPSILON ? source.rate / flow.produced : 1;
+          const inputName = getItem(inputId)?.name || input.name;
+          node.inputRates = node.inputRates || {};
+          node.inputRates[inputName] = (node.inputRates[inputName] || 0) + inputRate * share;
+          if (sourceOutputId !== inputId) {
+            const ref = createConsumptionReference(sourceNode, inputRate * share, inputId);
+            ref.id = `${sourceNodeId}-byproduct-${inputName}`;
+            ref.itemName = inputName;
+            node.inputs.push(ref);
+          } else {
+            node.inputs.push(sourceNode);
+          }
           addDependency(nodeId, sourceNodeId);
         });
       } else {
@@ -503,7 +589,7 @@ function linkProductionNodes(
 
     // Link fertilizer input if nursery
     const device = getDevice(machineName);
-    const isNursery = machineName === "nursery";
+    const isNursery = isNurseryMachine(machineName);
 
     if (isNursery && ctx.selectedFertilizer) {
       const fertilizerItem = getItem(ctx.selectedFertilizer);
@@ -519,7 +605,7 @@ function linkProductionNodes(
         const outputCount = typeof recipe.outputs[0].count === "string"
           ? parseFloat(recipe.outputs[0].count)
           : recipe.outputs[0].count;
-        const fertilizerPerActivation = (outputCount * outputItem.required_nutrients) / fertilizerItem.nutrient_value;
+        const fertilizerPerActivation = recipeNutrients(recipe) / (fertilizerItem.nutrient_value * ctx.fertilizerMultiplier);
         const fertilizerRate = activationRate * fertilizerPerActivation;
 
         // Link fertilizer (production sources)
@@ -537,15 +623,15 @@ function linkProductionNodes(
             // Calculate consumption rate from this production source, scaled by production portion
             const inputRate = fertilizerRate * (sourceRate / fertFlow.produced) * prodPortion;
 
-            if (!sourceNode || sourceNodeId === nodeId || nodeInputs.has(sourceNodeId)) return;
+            if (!sourceNode || sourceNodeId === nodeId || nodeInputs.has(`fertilizer:${sourceNodeId}`)) return;
 
             // Check for cycles - if detected, still create the link but don't add to dependencies
             // This allows the graph to show circular fertilizer flows without breaking traversal
             const wouldCycle = wouldCreateCycleNew(nodeId, sourceNodeId);
 
-            nodeInputs.add(sourceNodeId);
+            nodeInputs.add(`fertilizer:${sourceNodeId}`);
             // Use consumption reference to show edge without inflating production rate
-            node.inputs.push(createConsumptionReference(sourceNode, inputRate, fertId));
+            node.inputs.push({ ...createConsumptionReference(sourceNode, inputRate, fertId), inputKind: "fertilizer" });
 
             // Only track dependencies if not cyclic to avoid infinite loops in traversal
             if (!wouldCycle) {
@@ -558,7 +644,7 @@ function linkProductionNodes(
         // This allows showing both produced AND raw sources when both exist
         const rawNodeId = `${fertId}-raw`;
         const rawNode = nodes.get(rawNodeId);
-        if (rawNode && !nodeInputs.has(rawNodeId)) {
+        if (rawNode && !nodeInputs.has(`fertilizer:${rawNodeId}`)) {
           // Calculate how much raw fertilizer this node consumes
           // If there's also production, the raw portion is proportional to raw supply
           const rawFertRate = rawNode.rate;
@@ -566,59 +652,69 @@ function linkProductionNodes(
           const rawPortion = totalFertAvailable > 0 ? rawFertRate / totalFertAvailable : 1;
           const rawInputRate = fertilizerRate * rawPortion;
 
-          nodeInputs.add(rawNodeId);
-          node.inputs.push(createInputReference(rawNode, rawInputRate, fertId));
+          nodeInputs.add(`fertilizer:${rawNodeId}`);
+          node.inputs.push({ ...createInputReference(rawNode, rawInputRate, fertId), inputKind: "fertilizer" });
           addDependency(nodeId, rawNodeId);
         }
       }
     }
 
     // Link fuel input if applicable
-    if (device?.heat_consuming_speed && device.category !== "heating") {
-      const fuelItem = getItem(ctx.selectedFuel);
+    const heatSpeed = recipeHeatSpeed(recipe, device);
+    if (heatSpeed) {
+      fuelShares.forEach(({ fuelId, share }) => {
+      const fuelItem = getItem(fuelId);
       if (fuelItem?.heat_value) {
-        const fuelId = normalizeItemId(ctx.selectedFuel);
         const fuelFlow = itemFlows.get(fuelId);
 
         // Get parent furnace information for heat calculation
-        const parentFurnace = device.parent ? getDevice(device.parent) : null;
+        const parentFurnace = device?.parent ? getDevice(device.parent) : null;
         const furnaceHeat = parentFurnace?.heat_self || 1;
         const furnaceSlots = parentFurnace?.slots || 9;
-        const deviceSlotsRequired = device.slots_required || 1;
+        const deviceSlotsRequired = device?.slots_required || 1;
 
         // Calculate fuel consumption using parent/child heat formula
-        const deviceHeatPerSecond = device.heat_consuming_speed * ctx.speedMultiplier;
+        const deviceHeatPerSecond = heatSpeed * ctx.speedMultiplier;
         const furnaceContribution = furnaceHeat * (deviceSlotsRequired / furnaceSlots) * ctx.speedMultiplier;
         const totalHeatPerSecond = deviceHeatPerSecond + furnaceContribution;
         const effectiveRecipeTime = getEffectiveRecipeTime(recipe, ctx);
         const timePerActivation = effectiveRecipeTime / ctx.speedMultiplier;
         const heatPerActivation = totalHeatPerSecond * timePerActivation;
-        const fuelRate = activationRate * heatPerActivation / (fuelItem.heat_value * ctx.fuelMultiplier);
+        const fuelRate = activationRate * heatPerActivation * share / (fuelItem.heat_value * ctx.fuelMultiplier);
 
         // Link fuel (production sources)
         if (fuelFlow && fuelFlow.sources.length > 0) {
-          // Calculate how much comes from production vs raw (if raw is available)
+          // Bought fuel covers heat first (the LP only buys a producible fuel to burn it); production covers the rest
           const rawFuelRate = nodes.get(`${fuelId}-raw`)?.rate || 0;
-          const totalFuelAvailable = fuelFlow.produced + rawFuelRate;
-          const prodPortion = totalFuelAvailable > 0 ? fuelFlow.produced / totalFuelAvailable : 1;
+          const prodPortion = 1 - Math.min(1, fuelFlow.burned > 0 ? rawFuelRate / fuelFlow.burned : 0);
 
           // Fuel is produced - link to production nodes
           // Note: We create consumption references even for cycles so they appear in the graph
           fuelFlow.sources.forEach(({ recipeId, rate: sourceRate }) => {
-            const sourceNodeId = `${fuelId}-prod-${recipeId}`;
+            // Fuel may be the source recipe's primary output or a byproduct (e.g. Plank from sawing Rotten Log)
+            const sourceRecipe = getRecipeById(recipeId);
+            const sourcePrimaryId = sourceRecipe ? (sourceRecipe.outputs[0].id || normalizeItemId(sourceRecipe.outputs[0].name)) : fuelId;
+            const sourceNodeId = `${sourcePrimaryId}-prod-${recipeId}`;
             const sourceNode = nodes.get(sourceNodeId);
             // Calculate consumption rate from this production source, scaled by production portion
             const inputRate = fuelRate * (sourceRate / fuelFlow.produced) * prodPortion;
 
-            if (!sourceNode || sourceNodeId === nodeId || nodeInputs.has(sourceNodeId)) return;
+            if (!sourceNode || sourceNodeId === nodeId || nodeInputs.has(`fuel:${sourceNodeId}`)) return;
 
             // Check for cycles - if detected, still create the link but don't add to dependencies
             // This allows the graph to show circular fuel flows without breaking traversal
             const wouldCycle = wouldCreateCycleNew(nodeId, sourceNodeId);
 
-            nodeInputs.add(sourceNodeId);
+            nodeInputs.add(`fuel:${sourceNodeId}`);
             // Use consumption reference to show edge without inflating production rate
-            node.inputs.push(createConsumptionReference(sourceNode, inputRate, fuelId));
+            const ref = createConsumptionReference(sourceNode, inputRate, fuelId);
+            if (sourcePrimaryId !== fuelId) {
+              // Byproduct fuel: edge should leave the byproduct node (id must match graphMapper)
+              ref.id = `${sourceNodeId}-byproduct-${fuelItem.name}`;
+              ref.itemName = fuelItem.name;
+            }
+            ref.inputKind = "fuel";
+            node.inputs.push(ref);
 
             // Only track dependencies if not cyclic to avoid infinite loops in traversal
             if (!wouldCycle) {
@@ -631,19 +727,18 @@ function linkProductionNodes(
         // This allows showing both produced AND raw sources when both exist
         const rawNodeId = `${fuelId}-raw`;
         const rawNode = nodes.get(rawNodeId);
-        if (rawNode && !nodeInputs.has(rawNodeId)) {
-          // Calculate how much raw fuel this node consumes
-          // If there's also production, the raw portion is proportional to raw supply
-          const rawFuelRate = rawNode.rate;
-          const totalFuelAvailable = (fuelFlow?.produced || 0) + rawFuelRate;
-          const rawPortion = totalFuelAvailable > 0 ? rawFuelRate / totalFuelAvailable : 1;
+        if (rawNode && !nodeInputs.has(`fuel:${rawNodeId}`)) {
+          // Bought fuel covers heat first; only the shortfall comes from production
+          const burned = fuelFlow?.burned || 0;
+          const rawPortion = burned > 0 ? Math.min(1, rawNode.rate / burned) : 1;
           const rawInputRate = fuelRate * rawPortion;
 
-          nodeInputs.add(rawNodeId);
-          node.inputs.push(createInputReference(rawNode, rawInputRate, fuelId));
+          nodeInputs.add(`fuel:${rawNodeId}`);
+          node.inputs.push({ ...createInputReference(rawNode, rawInputRate, fuelId), inputKind: "fuel" });
           addDependency(nodeId, rawNodeId);
         }
       }
+      });
     }
   });
 }

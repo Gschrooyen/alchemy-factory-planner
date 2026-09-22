@@ -2,28 +2,9 @@ import { Coins, Flame, Leaf, Settings, Truck, Zap } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useFactoryStore } from "../../store/useFactoryStore";
 import { OrnatePanel } from "../ui/OrnatePanel";
-import {
-    calculateAlchemyBonus,
-    calculateThrowingBonus,
-    calculateSalesBonus,
-    calculateCustomerMgmtBonus,
-} from "../../engine/lp-planner/efficiency";
+import { attributeValue, maxAttributeLevel } from "../../engine/attributes";
 
-// Helper functions to calculate bonuses based on skill level
-function calculateBeltSpeed(level: number): number {
-    const cappedLevel = Math.min(92, level);
-    return cappedLevel <= 12
-        ? 60 + cappedLevel * 15
-        : 60 + (12 * 15) + ((cappedLevel - 12) * 3);
-}
-
-function calculateProductionSpeed(level: number): number {
-    const cappedLevel = Math.min(92, level);
-    const multiplier = cappedLevel <= 12
-        ? 1 + cappedLevel * 0.25
-        : 1 + (12 * 0.25) + ((cappedLevel - 12) * 0.05);
-    return Math.round(multiplier * 100);
-}
+const pct = (value: number) => Math.round(value);
 
 export function GlobalResearchPanel() {
     const { research, setResearch, resetResearch } = useFactoryStore();
@@ -58,7 +39,7 @@ export function GlobalResearchPanel() {
                     value={research.logisticsEfficiency}
                     onChange={(v: number) => setResearch("logisticsEfficiency", v)}
                     color="text-cyan-400"
-                    description={`Belt Speed ${calculateBeltSpeed(research.logisticsEfficiency)}/min`}
+                    description={`Belt Speed ${attributeValue("ConveyerSpeed", research.logisticsEfficiency)}/min`}
                     maxLevel={92}
                 />
                 <ResearchControl
@@ -67,7 +48,7 @@ export function GlobalResearchPanel() {
                     value={research.throwingEfficiency}
                     onChange={(v: number) => setResearch("throwingEfficiency", v)}
                     color="text-sky-400"
-                    description={`Catapult Rate ${Math.round((1 + calculateThrowingBonus(research.throwingEfficiency)) * 100)}%`}
+                    description={`Catapult Rate ${attributeValue("CatapultSpeed", research.throwingEfficiency)}/min`}
                 />
                 <ResearchControl
                     label="Factory Eff"
@@ -75,7 +56,7 @@ export function GlobalResearchPanel() {
                     value={research.factoryEfficiency}
                     onChange={(v: number) => setResearch("factoryEfficiency", v)}
                     color="text-[var(--accent-gold)]"
-                    description={`Prod Speed ${calculateProductionSpeed(research.factoryEfficiency)}%`}
+                    description={`Prod Speed ${pct(attributeValue("FactorySpeed", research.factoryEfficiency))}%`}
                     maxLevel={92}
                 />
                 <ResearchControl
@@ -84,7 +65,7 @@ export function GlobalResearchPanel() {
                     value={research.alchemySkill}
                     onChange={(v: number) => setResearch("alchemySkill", v)}
                     color="text-violet-400"
-                    description={`Extractor Output ${Math.round((1 + calculateAlchemyBonus(research.alchemySkill)) * 100)}%`}
+                    description={`Extractor Output ${pct(attributeValue("ExtractorSkill", research.alchemySkill))}%`}
                 />
                 <ResearchControl
                     label="Fuel Eff"
@@ -92,7 +73,7 @@ export function GlobalResearchPanel() {
                     value={research.fuelEfficiency}
                     onChange={(v: number) => setResearch("fuelEfficiency", v)}
                     color="text-orange-400"
-                    description={`Fuel Heat +${research.fuelEfficiency * 10}%`}
+                    description={`Fuel Heat ${pct(attributeValue("FuelEfficiency", research.fuelEfficiency))}%`}
                 />
                 <ResearchControl
                     label="Fertilizer"
@@ -100,7 +81,7 @@ export function GlobalResearchPanel() {
                     value={research.fertilizerEfficiency}
                     onChange={(v: number) => setResearch("fertilizerEfficiency", v)}
                     color="text-emerald-400"
-                    description={`Nutrient Value +${research.fertilizerEfficiency * 10}%`}
+                    description={`Nutrient Value ${pct(attributeValue("FertilizerEfficiency", research.fertilizerEfficiency))}%`}
                 />
                 <ResearchControl
                     label="Sales"
@@ -108,7 +89,8 @@ export function GlobalResearchPanel() {
                     value={research.salesAbility}
                     onChange={(v: number) => setResearch("salesAbility", v)}
                     color="text-[var(--accent-gold-bright)]"
-                    description={`Shop Profit ${Math.round((1 + calculateSalesBonus(research.salesAbility)) * 100)}%`}
+                    description={`Shop Profit ${pct(attributeValue("StoreProfit", research.salesAbility))}%`}
+                    maxLevel={maxAttributeLevel("StoreProfit")}
                 />
                 <ResearchControl
                     label="Negotiation"
@@ -116,7 +98,8 @@ export function GlobalResearchPanel() {
                     value={research.negotiationSkill}
                     onChange={(v: number) => setResearch("negotiationSkill", v)}
                     color="text-teal-400"
-                    description={`Contract Amount ${100 + research.negotiationSkill * 25}%`}
+                    description={`Contract Amount +${pct(attributeValue("ContractNum", research.negotiationSkill))}%`}
+                    maxLevel={maxAttributeLevel("ContractNum")}
                 />
                 <ResearchControl
                     label="Customer"
@@ -124,7 +107,7 @@ export function GlobalResearchPanel() {
                     value={research.customerMgmt}
                     onChange={(v: number) => setResearch("customerMgmt", v)}
                     color="text-rose-400"
-                    description={`Quest Rewards ${Math.round((1 + calculateCustomerMgmtBonus(research.customerMgmt)) * 100)}%`}
+                    description={`Quest Rewards ${pct(attributeValue("QuestProfit", research.customerMgmt))}%`}
                 />
                 <ResearchControl
                     label="Relic"
@@ -132,7 +115,7 @@ export function GlobalResearchPanel() {
                     value={research.relicKnowledge}
                     onChange={(v: number) => setResearch("relicKnowledge", v)}
                     color="text-indigo-400"
-                    description={`Withdrawal Bonus ${100 + research.relicKnowledge * 10}%`}
+                    description={`Withdrawal Bonus +${pct(attributeValue("AltarEfficiency", research.relicKnowledge))}%`}
                 />
             </div>
         </OrnatePanel>

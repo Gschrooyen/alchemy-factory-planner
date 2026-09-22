@@ -35,6 +35,8 @@ export interface Item {
   nutrient_value?: number; // For fertilizers
   nutrients_per_seconds?: number;
   required_nutrients?: number; // For plants
+  liquid?: boolean; // Piped only; cannot enter a cauldron
+  hidden?: boolean; // In the game data but not obtainable in play (bHideInGame)
 }
 
 export interface RecipeInput {
@@ -57,6 +59,7 @@ export interface Recipe {
   time: number;
   crafted_in: string; // Device ID or Name
   category?: string | string[];
+  heat_per_second?: number; // Overrides the device's heat draw (cauldron brews: heat depends on the product)
 }
 
 export interface Device {
@@ -76,6 +79,8 @@ export interface ProductionNode {
   rate: number; // Items per minute (gross production)
   netOutputRate?: number; // Net output after internal consumption (for loops)
   isConsumptionReference?: boolean; // True if this is a fuel/fertilizer consumption reference
+  inputKind?: "fuel" | "fertilizer";
+  inputRates?: Record<string, number>; // itemName -> rate THIS node consumes (edge labels; inputs share node objects) // Set on input references so the graph can separate heat from product inputs
   isRaw: boolean;
   recipeId?: string;
   deviceId?: string;
@@ -84,11 +89,13 @@ export interface ProductionNode {
   parentFurnaceId?: string; // Parent furnace device ID (e.g., "stone-stove")
   parentFurnaceCount?: number; // Number of parent furnaces needed
   inputs: ProductionNode[];
-  byproducts: { itemName: string; rate: number }[];
+  byproducts: { itemName: string; rate: number; remaining?: number }[]; // remaining = rate minus internal use
   isBeltSaturated?: boolean;
   beltLimit?: number;
   isTarget?: boolean; // For visualization nodes
   suppliedRate?: number;
+  surplus?: number;
+  isOrphanRoot?: boolean; // Production not feeding any target (e.g. a machine run only to burn a byproduct) // Produced beyond what the plan consumes/targets (LP only)
 }
 
 export interface PlannerConfig {
@@ -111,6 +118,17 @@ export interface PlannerConfig {
   selectedFuel?: string;
   selfFuel?: boolean; // If true, fuel is produced internally; if false, treated as external input
   selfFertilizer?: boolean; // If true, fertilizer is produced internally; if false, treated as external input
+  cauldronOverrides?: Record<string, string[]>; // itemId -> the 2 or 3 ingredient ids to brew it from instead of its normal recipes (LP only)
+  paradoxOverrides?: Record<string, string>; // itemId (mors/vitae) -> input item id to feed the Paradox Crucible instead of its normal recipes (LP only)
+  recipeOverrides?: Record<string, string>; // itemId -> the one recipe id allowed to make it; other recipes' output of it doesn't count (LP only)
+  optimizeFor?: "cost" | "machines"; // LP objective: cheapest raw materials (default) or fewest machines
+  machineCost?: number; // Cost mode only: gold per minute charged per machine, so cheap-but-slow chains are not free (default 0 in the engine, 25 in the UI)
+  useThermalExtractor?: boolean; // Run extraction recipes in the Thermal Extractor (costs heat, gains the height bonus)
+  thermalExtractorFloors?: number; // Storeys the Thermal Extractor is built above ground: +12.5% yield each, capped at +200%
+  burnByproducts?: boolean; // If true, any produced fuel-grade item may be burned for heat before buying selectedFuel (LP only)
+  autoBrews?: boolean; // Brew solver: offer the LP cauldron/advanced cauldron/paradox brews that beat an item's normal recipes (LP only)
+  machineOverrides?: Record<string, number>;
+  wholeMachines?: boolean; // "Closest exact solve": integer machine counts, minimal overshoot of targets (LP only) // recipeId -> minimum machine count the user has built (LP only)
 }
 
 export interface ResearchState {

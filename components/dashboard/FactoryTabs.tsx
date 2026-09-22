@@ -1,5 +1,8 @@
-import { GitGraph, LayoutList, PlusCircle, X } from "lucide-react";
+import { Check, GitGraph, LayoutList, Link2, PlusCircle, X } from "lucide-react";
 import { useState } from "react";
+import { encodeShare, SHARE_PARAM } from "../../lib/share";
+import { BlueprintExportButton } from "./BlueprintExportButton";
+import type { FactoryState } from "../../engine/types";
 import { cn } from "../../lib/utils";
 import { useFactoryStore } from "../../store/useFactoryStore";
 
@@ -105,6 +108,9 @@ export function FactoryTabs() {
             </button>
             <div className="flex-1"></div>
 
+            {activeFactory && <BlueprintExportButton factoryName={activeFactory.name} roots={activeFactory.productionTrees} />}
+            {activeFactory && <ShareButton factory={activeFactory} />}
+
             {/* View Toggle Bar */}
             {activeFactory && (
                 <div className="flex justify-end ml-2">
@@ -135,5 +141,33 @@ export function FactoryTabs() {
                 </div>
             )}
         </div>
+    );
+}
+
+/** Copies a link that recreates this factory (targets, resources, config, skills) in another browser. */
+function ShareButton({ factory }: { factory: { name: string; targets: FactoryState["targets"]; availableResources: FactoryState["availableResources"]; config: FactoryState["config"]; plannerMode: FactoryState["plannerMode"] } }) {
+    const research = useFactoryStore((s) => s.research);
+    const [copied, setCopied] = useState(false);
+    const share = async () => {
+        const url = new URL(window.location.href);
+        url.search = "";
+        url.searchParams.set(SHARE_PARAM, encodeShare({ v: 1, name: factory.name, targets: factory.targets, availableResources: factory.availableResources, config: factory.config, plannerMode: factory.plannerMode, research }));
+        try {
+            await navigator.clipboard.writeText(url.toString());
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        } catch {
+            window.prompt("Copy this link:", url.toString());
+        }
+    };
+    return (
+        <button
+            onClick={share}
+            title="Copy a link to this factory"
+            className="flex items-center gap-1.5 px-3 py-1.5 mr-2 text-xs rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent-gold)] hover:border-[var(--accent-gold-dim)] transition-colors"
+        >
+            {copied ? <Check size={14} className="text-[var(--success)]" /> : <Link2 size={14} />}
+            {copied ? "Copied" : "Share"}
+        </button>
     );
 }

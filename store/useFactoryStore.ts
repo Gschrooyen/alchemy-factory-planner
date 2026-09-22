@@ -20,6 +20,8 @@ import {
     ResearchState,
 } from "../engine/types";
 import { generateGraph } from "../lib/graphMapper";
+import type { LayoutAlgorithm } from "../components/graph/layout";
+import type { SharedFactory } from "../lib/share";
 
 // Extended Factory Data to include visual state
 export interface FactoryData extends FactoryState {
@@ -63,6 +65,10 @@ const DEFAULT_FACTORY_CONFIG: Omit<
     selectedFuel: "",
     selfFuel: true,
     selfFertilizer: true,
+    optimizeFor: "cost",
+    machineCost: 25,
+    useThermalExtractor: false,
+    thermalExtractorFloors: 0,
 };
 
 interface FactoryStore {
@@ -73,6 +79,7 @@ interface FactoryStore {
 
     // Actions
     addFactory: () => void;
+    importFactory: (shared: SharedFactory) => void;
     removeFactory: (id: string) => void;
     renameFactory: (id: string, name: string) => void;
     setActiveFactory: (id: string) => void;
@@ -100,6 +107,10 @@ interface FactoryStore {
     setViewMode: (id: string, mode: "graph" | "list") => void;
     setPlannerMode: (id: string, mode: PlannerMode) => void;
     resetFactoryLayout: (id: string) => void;
+    showUtilityEdges: boolean;
+    layoutAlgorithm: LayoutAlgorithm;
+    setLayoutAlgorithm: (a: LayoutAlgorithm) => void;
+    toggleUtilityEdges: () => void;
 }
 
 export const useFactoryStore = create<FactoryStore>()(
@@ -108,6 +119,10 @@ export const useFactoryStore = create<FactoryStore>()(
             factories: [],
             activeFactoryId: null,
             research: DEFAULT_RESEARCH,
+            showUtilityEdges: false,
+            layoutAlgorithm: "layered",
+            setLayoutAlgorithm: (a) => { set({ layoutAlgorithm: a }); const id = get().activeFactoryId; if (id) get().resetFactoryLayout(id); },
+            toggleUtilityEdges: () => set((s) => ({ showUtilityEdges: !s.showUtilityEdges })),
 
             addFactory: () => {
                 const id = crypto.randomUUID();
@@ -130,6 +145,31 @@ export const useFactoryStore = create<FactoryStore>()(
                     factories: [...state.factories, newFactory],
                     activeFactoryId: id,
                 }));
+            },
+
+            // A shared link: new tab with the shared inputs, skills applied, plan computed
+            importFactory: (shared) => {
+                const id = crypto.randomUUID();
+                const factory: FactoryData = {
+                    id,
+                    name: shared.name || `Factory ${get().factories.length + 1}`,
+                    targets: shared.targets,
+                    availableResources: shared.availableResources ?? [],
+                    config: { ...DEFAULT_FACTORY_CONFIG, ...shared.config },
+                    viewMode: "graph",
+                    plannerMode: shared.plannerMode ?? "lp",
+                    nodes: [],
+                    edges: [],
+                    productionTrees: [],
+                    active: false,
+                    viewport: { x: 0, y: 0, zoom: 1 },
+                };
+                set((state) => ({
+                    factories: [...state.factories, factory],
+                    activeFactoryId: id,
+                    research: { ...state.research, ...shared.research },
+                }));
+                get().calculateAndLayout();
             },
 
             removeFactory: (id) => {
@@ -157,7 +197,8 @@ export const useFactoryStore = create<FactoryStore>()(
 
             setActiveFactory: (id) => {
                 set({ activeFactoryId: id });
-                // Optionally trigger layout check?
+                // productionTrees aren't persisted, so a factory that wasn't active at load has none yet
+                if (get().factories.find((f) => f.id === id)?.productionTrees.length === 0) get().calculateAndLayout();
             },
 
             setResearch: (field, value) => {
@@ -272,13 +313,15 @@ export const useFactoryStore = create<FactoryStore>()(
                     savedPositions[n.id] = n.position;
                 });
 
-                const { nodes, edges } = generateGraph(productionNodes, savedPositions);
-
+                // Layout is async (ELK); trees are set right away so the list view and summary don't wait
                 set((s) => ({
-                    factories: s.factories.map((f) =>
-                        f.id === activeId ? { ...f, nodes, edges, productionTrees: productionNodes } : f
-                    ),
+                    factories: s.factories.map((f) => (f.id === activeId ? { ...f, productionTrees: productionNodes } : f)),
                 }));
+                generateGraph(productionNodes, savedPositions, state.layoutAlgorithm).then(({ nodes, edges }) =>
+                    set((s) => ({
+                        factories: s.factories.map((f) => (f.id === activeId ? { ...f, nodes, edges } : f)),
+                    }))
+                );
             },
 
             resetFactoryLayout: (id) => {
@@ -301,15 +344,13 @@ export const useFactoryStore = create<FactoryStore>()(
                     ? calculateProductionLP(calculationConfig)
                     : calculateProduction(calculationConfig);
 
-                const { nodes, edges } = generateGraph(productionNodes, {});
-
-                const newViewport = { x: 0, y: 0, zoom: 1 };
-
-                set((s) => ({
-                    factories: s.factories.map((f) =>
-                        f.id === id ? { ...f, nodes, edges, productionTrees: productionNodes, viewport: newViewport } : f
-                    ),
-                }));
+                generateGraph(productionNodes, {}, state.layoutAlgorithm).then(({ nodes, edges }) =>
+                    set((s) => ({
+                        factories: s.factories.map((f) =>
+                            f.id === id ? { ...f, nodes, edges, productionTrees: productionNodes, viewport: { x: 0, y: 0, zoom: 1 } } : f
+                        ),
+                    }))
+                );
             },
 
 
@@ -357,6 +398,7 @@ export const useFactoryStore = create<FactoryStore>()(
                 })),
                 activeFactoryId: state.activeFactoryId,
                 research: state.research,
+                layoutAlgorithm: state.layoutAlgorithm,
             }),
             onRehydrateStorage: () => (state) => {
                 // Recalculate production trees after loading from localStorage

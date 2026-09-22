@@ -1,7 +1,10 @@
 import devicesData from "../data/devices.json";
 import recipesData from "../data/recipes.json";
 import { Device, Item, PlannerConfig, ProductionNode, Recipe } from "./types";
-import { normalizeItemId, getItem, getAllItems, getEffectiveRecipeTime } from "./item-utils";
+import { normalizeItemId, getItem, getAllItems, getEffectiveRecipeTime, resolveMachineName, clearLiquidBeltFlags, isNurseryMachine, recipeNutrients } from "./item-utils";
+import { calculateThermalYieldMultiplier } from "./lp-planner/efficiency";
+import { attributeMultiplier, attributeValue } from "./attributes";
+import { ALCHEMY_MACHINES, THERMAL_EXTRACTOR } from "./lp-planner/types";
 
 // Index data for fast lookups
 const itemsMap = new Map<string, Item>();
@@ -33,12 +36,21 @@ interface CalcContext {
     speedMultiplier: number;
     fuelMultiplier: number;
     alchemyMultiplier: number;
+    useThermalExtractor: boolean;
+    thermalYieldMultiplier: number;
     beltLimit: number;
     fertilizerEfficiency: number;
     selectedFertilizer?: string;
     selectedFuel: string;
     selfFuel: boolean;
     selfFertilizer: boolean;
+}
+
+/** Output quantity multiplier for a machine: alchemy skill, plus build height for the Thermal Extractor. */
+function outputMultiplier(machineName: string, ctx: CalcContext): number {
+    const alchemy = ALCHEMY_MACHINES.includes(machineName) ? ctx.alchemyMultiplier : 1;
+    const thermal = machineName === THERMAL_EXTRACTOR ? ctx.thermalYieldMultiplier : 1;
+    return alchemy * thermal;
 }
 
 export function calculateProduction(config: PlannerConfig): ProductionNode[] {
@@ -62,17 +74,15 @@ export function calculateProduction(config: PlannerConfig): ProductionNode[] {
         selfFertilizer,
     } = config;
 
-    // Modifiers
-    // Factory Efficiency: +25% per level (Linear)
-    const speedMultiplier = 1 + factoryEfficiency * 0.25;
+    // Modifiers, from the game's DT_Attributes / DT_Improvements ladders
+    const speedMultiplier = attributeMultiplier("FactorySpeed", factoryEfficiency);
+    const fuelMultiplier = attributeMultiplier("FuelEfficiency", fuelEfficiency);
+    const alchemyMultiplier = attributeMultiplier("ExtractorSkill", alchemySkill);
 
-    // Fuel Efficiency: +10% per level
-    const fuelMultiplier = 1 + fuelEfficiency * 0.1;
+    // Thermal Extractor: +12.5% yield per storey built above ground, capped at +200%
+    const thermalYieldMultiplier = calculateThermalYieldMultiplier(config.thermalExtractorFloors ?? 0);
 
-    // Alchemy Skill: +6% per level (Base 100% + 6% per level, multiplier logic)
-    const alchemyMultiplier = 1 + alchemySkill * 0.06;
-
-    const beltLimit = 60 + logisticsEfficiency * 15;
+    const beltLimit = attributeValue("ConveyerSpeed", logisticsEfficiency);
 
     // Create a mutable pool of available resources
     const resourcePool = new Map<string, number>();
@@ -89,6 +99,8 @@ export function calculateProduction(config: PlannerConfig): ProductionNode[] {
         speedMultiplier,
         fuelMultiplier,
         alchemyMultiplier,
+        useThermalExtractor: config.useThermalExtractor ?? false,
+        thermalYieldMultiplier,
         beltLimit,
         fertilizerEfficiency,
         selectedFertilizer,
@@ -112,7 +124,7 @@ export function calculateProduction(config: PlannerConfig): ProductionNode[] {
         if (root) roots.push(root);
     }
 
-    return roots;
+    return clearLiquidBeltFlags(roots);
 }
 
 function solveNode(
@@ -205,20 +217,8 @@ function solveNode(
         }
 
         // Alchemy Multiplier
-        const machineName = recipe.crafted_in
-            ? recipe.crafted_in.toLowerCase()
-            : "";
-        let quantityMultiplier = 1;
-        if (
-            [
-                "extractor",
-                "thermal extractor",
-                "alembic",
-                "advanced alembic",
-            ].includes(machineName)
-        ) {
-            quantityMultiplier = ctx.alchemyMultiplier;
-        }
+        const machineName = resolveMachineName(recipe.crafted_in, ctx.useThermalExtractor);
+        const quantityMultiplier = outputMultiplier(machineName, ctx);
 
         outputCount = count * (percentage / 100) * quantityMultiplier;
     }
@@ -226,28 +226,28 @@ function solveNode(
     if (outputCount === 0) outputCount = 1;
 
     const baseTime = recipe.time;
-    const machineName = recipe.crafted_in ? recipe.crafted_in.toLowerCase() : "";
+    const machineName = resolveMachineName(recipe.crafted_in, ctx.useThermalExtractor);
     const device = devicesMap.get(machineName);
 
     // --- LOGIC: NURSERY + FERTILIZER ---
     let itemsPerMinPerMachine = 0;
     let fertilizerInput: { name: string; rate: number } | null = null;
-    const isNursery = machineName === "nursery";
+    const isNursery = isNurseryMachine(machineName);
 
     if (isNursery && ctx.selectedFertilizer) {
         const fertilizerId = normalizeItemId(ctx.selectedFertilizer);
         const fertilizerItem = itemsMap.get(fertilizerId);
 
         if (fertilizerItem && item.required_nutrients) {
-            const nutrientValue = fertilizerItem.nutrient_value || 0;
+            const nutrientValue = (fertilizerItem.nutrient_value || 0) * (1 + ctx.fertilizerEfficiency * 0.1); // research boosts value per unit
             // Growth is nutrient-driven: cycle time = nutrients per cycle / fertilizer delivery rate
-            const growthTime = getEffectiveRecipeTime(recipe, ctx.selectedFertilizer, 1 + ctx.fertilizerEfficiency * 0.1);
+            const growthTime = getEffectiveRecipeTime(recipe, ctx.selectedFertilizer, 1 + ctx.fertilizerEfficiency * 0.1, ctx.beltLimit, ctx.speedMultiplier);
             itemsPerMinPerMachine = (outputCount / growthTime) * 60 * ctx.speedMultiplier;
 
             // Fertilizer consumption: nutrients are per OUTPUT ITEM, not per cycle
             // - Each Flax needs 24 nutrients
             // - Fertilizer per Flax = 24 / 144 = 0.1667 units
-            const fertNeededPerItem = item.required_nutrients / nutrientValue;
+            const fertNeededPerItem = recipeNutrients(recipe) / outputCount / nutrientValue; // all outputs, per primary item
             const totalFertilizerRate = neededRate * fertNeededPerItem;
 
             fertilizerInput = {
@@ -332,17 +332,7 @@ function solveNode(
                         ? parseFloat(out.percentage)
                         : +out.percentage;
 
-            let qMult = 1;
-            if (
-                [
-                    "extractor",
-                    "thermal extractor",
-                    "alembic",
-                    "advanced alembic",
-                ].includes(machineName)
-            ) {
-                qMult = ctx.alchemyMultiplier;
-            }
+            const qMult = outputMultiplier(machineName, ctx);
 
             const outCount = count * (percentage / 100) * qMult;
             const rate = (outCount / outputCount) * neededRate;

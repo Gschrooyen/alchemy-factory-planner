@@ -112,14 +112,26 @@ export function FactorySettingsPanel({
         selectedFuel: activeFactory.config.selectedFuel || "",
         selfFuel: activeFactory.config.selfFuel ?? true,
         selfFertilizer: activeFactory.config.selfFertilizer ?? true,
+        burnByproducts: activeFactory.config.burnByproducts ?? false,
+        wholeMachines: activeFactory.config.wholeMachines ?? false,
+        autoBrews: activeFactory.config.autoBrews ?? false,
+        optimizeFor: activeFactory.config.optimizeFor ?? "cost",
+        machineCost: activeFactory.config.machineCost ?? 25,
+        useThermalExtractor: activeFactory.config.useThermalExtractor ?? false,
+        thermalExtractorFloors: activeFactory.config.thermalExtractorFloors ?? 0,
     };
 
     const sortedFertilizers = [...fertilizers].sort((a, b) => (a.nutrient_value || 0) - (b.nutrient_value || 0));
     const sortedFuels = [...fuels].sort((a, b) => (a.heat_value || 0) - (b.heat_value || 0));
 
-    const updateConfig = (field: "selectedFertilizer" | "selectedFuel" | "selfFuel" | "selfFertilizer", value: string | boolean) => {
+    const updateConfig = (field: "selectedFertilizer" | "selectedFuel" | "selfFuel" | "selfFertilizer" | "burnByproducts" | "wholeMachines" | "autoBrews" | "machineCost" | "thermalExtractorFloors" | "useThermalExtractor" | "optimizeFor", value: string | boolean | number) => {
         updateFactoryConfig(activeFactory.id, { [field]: value });
     };
+
+    const optimizeOptions = [
+        { value: "cost", label: "Lowest raw material cost" },
+        { value: "machines", label: "Fewest machines" },
+    ];
 
     const plannerOptions = [
         { value: "recursive", label: "Recursive (Tree-based)" },
@@ -160,6 +172,11 @@ export function FactorySettingsPanel({
                         placeholder="Select Fertilizer..."
                         className="w-full bg-[var(--background-deep)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs text-[var(--text-secondary)] hover:border-[var(--border)]"
                     />
+                    {!config.selectedFertilizer && (
+                        <p className="mt-1.5 text-[10px] text-[var(--warning)]">
+                            None selected: nurseries are planned at base growth time with no fertilizer input.
+                        </p>
+                    )}
                     {config.selectedFertilizer && (
                         <label className="flex items-center gap-2 mt-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">
                             <input
@@ -195,6 +212,103 @@ export function FactorySettingsPanel({
                             />
                             <span>Produce fuel internally</span>
                         </label>
+                    )}
+                    {config.selectedFuel && activeFactory.plannerMode === "lp" && (
+                        <label className="flex items-center gap-2 mt-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">
+                            <input
+                                type="checkbox"
+                                checked={config.burnByproducts}
+                                onChange={(e) => updateConfig("burnByproducts", e.target.checked)}
+                                className="accent-[var(--accent-gold)] cursor-pointer"
+                            />
+                            <span>Burn byproducts for heat first</span>
+                        </label>
+                    )}
+                    {activeFactory.plannerMode === "lp" && (
+                        <label className="flex items-center gap-2 mt-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">
+                            <input
+                                type="checkbox"
+                                checked={config.wholeMachines}
+                                onChange={(e) => updateConfig("wholeMachines", e.target.checked)}
+                                className="accent-[var(--accent-gold)] cursor-pointer"
+                            />
+                            <span>Whole machines</span>
+                        </label>
+                    )}
+                    {activeFactory.plannerMode === "lp" && (
+                        <label
+                            className="flex items-center gap-2 mt-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors"
+                            title="Searches every cauldron, advanced cauldron and paradox brew for ones cheaper (or more compact) than an item's normal recipes and lets the planner use them. Your own brews and pins still win."
+                        >
+                            <input
+                                type="checkbox"
+                                checked={config.autoBrews}
+                                onChange={(e) => updateConfig("autoBrews", e.target.checked)}
+                                className="accent-[var(--accent-gold)] cursor-pointer"
+                            />
+                            <span>Brew solver (auto cauldron / paradox)</span>
+                        </label>
+                    )}
+                </div>
+
+                {activeFactory.plannerMode === "lp" && (
+                    <div>
+                        <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase mb-1.5 flex items-center tracking-wide">
+                            Optimize For
+                            <InfoTooltip text="Lowest cost buys the cheapest raw materials, which can mean long chains. Fewest machines picks the shortest route instead, buying pricier inputs to save buildings." />
+                        </label>
+                        <SearchableSelect
+                            options={optimizeOptions}
+                            value={config.optimizeFor}
+                            onChange={(val) => updateConfig("optimizeFor", val)}
+                            placeholder="Optimize For..."
+                            className="w-full bg-[var(--background-deep)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs text-[var(--text-secondary)] hover:border-[var(--border)]"
+                        />
+                        {config.optimizeFor === "cost" && (
+                            <div className="mt-2 flex items-center gap-2" title="Each machine is charged this much per minute on top of raw material cost, so a cheaper-but-slower route only wins if it saves more than the extra machines cost. 0 = raw cost only.">
+                                <input
+                                    type="number"
+                                    min={0}
+                                    step={5}
+                                    value={config.machineCost}
+                                    onChange={(e) => updateConfig("machineCost", Math.max(0, Number(e.target.value) || 0))}
+                                    className="w-20 bg-[var(--background-deep)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs text-[var(--text-secondary)] hover:border-[var(--border)]"
+                                />
+                                <span className="text-[10px] text-[var(--text-muted)]">gold/min per machine</span>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                <div>
+                    <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase mb-1.5 flex items-center tracking-wide">
+                        Extraction
+                        <InfoTooltip text="Thermal Extractors run the same recipes as Extractors, but burn heat and gain +12.5% output per storey built above ground, capped at +200% (16 storeys)." />
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">
+                        <input
+                            type="checkbox"
+                            checked={config.useThermalExtractor}
+                            onChange={(e) => updateConfig("useThermalExtractor", e.target.checked)}
+                            className="accent-[var(--accent-gold)] cursor-pointer"
+                        />
+                        <span>Use Thermal Extractors</span>
+                    </label>
+                    {config.useThermalExtractor && (
+                        <div className="mt-2 flex items-center gap-2">
+                            <input
+                                type="number"
+                                min={0}
+                                max={16}
+                                step={1}
+                                value={config.thermalExtractorFloors}
+                                onChange={(e) => updateConfig("thermalExtractorFloors", Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+                                className="w-20 bg-[var(--background-deep)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs text-[var(--text-secondary)] hover:border-[var(--border)]"
+                            />
+                            <span className="text-[10px] text-[var(--text-muted)]">
+                                floors up &rarr; +{Math.round(Math.min(2, config.thermalExtractorFloors * 0.125) * 100)}% output
+                            </span>
+                        </div>
                     )}
                 </div>
 

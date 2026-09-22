@@ -1,0 +1,526 @@
+{
+  "InventoryCapacity": {
+    "base": 24,
+    "unit": "",
+    "steps": [
+      4,
+      4,
+      8,
+      8,
+      8,
+      8
+    ],
+    "repeatStep": null,
+    "modType": "Add"
+  },
+  "SprintSpeed": {
+    "base": 700,
+    "unit": "%",
+    "steps": [
+      10,
+      10,
+      10,
+      10
+    ],
+    "repeatStep": null,
+    "modType": "Increase"
+  },
+  "StoreReputation": {
+    "base": 0,
+    "unit": "",
+    "steps": [
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8
+    ],
+    "repeatStep": null,
+    "modType": "Add"
+  },
+  "ConveyerSpeed": {
+    "base": 60,
+    "unit": "/min",
+    "steps": [
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      3
+    ],
+    "repeatStep": 3,
+    "modType": "Add"
+  },
+  "FuelEfficiency": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10
+    ],
+    "repeatStep": 10,
+    "modType": "Increase"
+  },
+  "ResearchPoints": {
+    "base": 100,
+    "unit": "%",
+    "steps": [],
+    "repeatStep": null
+  },
+  "FactorySpeed": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      5
+    ],
+    "repeatStep": 5,
+    "modType": "Increase"
+  },
+  "RestockSpeed": {
+    "base": 5,
+    "unit": "/s",
+    "steps": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "repeatStep": null,
+    "modType": "Add"
+  },
+  "ConveyerLiftSpeed": {
+    "base": 60,
+    "unit": "/min",
+    "steps": [
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      3
+    ],
+    "repeatStep": 3,
+    "modType": "Add"
+  },
+  "CheckoutSpeed": {
+    "base": 1,
+    "unit": "/s",
+    "steps": [],
+    "repeatStep": null
+  },
+  "SleepTime": {
+    "base": 8,
+    "unit": "hr",
+    "steps": [
+      -2,
+      -2,
+      -2,
+      -2
+    ],
+    "repeatStep": null,
+    "modType": "Add"
+  },
+  "FertilizerEfficiency": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10
+    ],
+    "repeatStep": 10,
+    "modType": "Increase"
+  },
+  "GarbageSellPrice": {
+    "base": 100,
+    "unit": "%",
+    "steps": [],
+    "repeatStep": null
+  },
+  "AthanorSkill": {
+    "base": 0,
+    "unit": "%",
+    "steps": [],
+    "repeatStep": null
+  },
+  "UnlockBlueprintTool": {
+    "base": 0,
+    "unit": "",
+    "steps": [
+      1
+    ],
+    "repeatStep": null,
+    "modType": "Add"
+  },
+  "BlueprintCostMoney": {
+    "base": 0,
+    "unit": "",
+    "steps": [
+      1
+    ],
+    "repeatStep": null,
+    "modType": "Add"
+  },
+  "ExtractorSkill": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      6,
+      6,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      10,
+      10,
+      10,
+      10,
+      10
+    ],
+    "repeatStep": 10,
+    "modType": "Increase"
+  },
+  "AlembicSkill": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      6,
+      6,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      10,
+      10,
+      10,
+      10,
+      10
+    ],
+    "repeatStep": 10,
+    "modType": "Increase"
+  },
+  "StoreProfit": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      10,
+      10,
+      10,
+      10
+    ],
+    "repeatStep": null,
+    "modType": "Increase"
+  },
+  "CatapultSpeed": {
+    "base": 60,
+    "unit": "/min",
+    "steps": [
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      3
+    ],
+    "repeatStep": 3,
+    "modType": "Add"
+  },
+  "CannonSpeed": {
+    "base": 120,
+    "unit": "/min",
+    "steps": [
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      30,
+      6
+    ],
+    "repeatStep": 6,
+    "modType": "Add"
+  },
+  "QuestProfit": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      6,
+      6,
+      8,
+      8,
+      10,
+      10,
+      12,
+      12,
+      14,
+      14,
+      20,
+      20,
+      20
+    ],
+    "repeatStep": 20,
+    "modType": "Increase"
+  },
+  "AltarEfficiency": {
+    "base": 0,
+    "unit": "%",
+    "steps": [
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10,
+      10
+    ],
+    "repeatStep": 10,
+    "modType": "Add"
+  },
+  "ContractNum": {
+    "base": 0,
+    "unit": "%",
+    "steps": [
+      60,
+      60,
+      60,
+      60,
+      60
+    ],
+    "repeatStep": null,
+    "modType": "Add"
+  },
+  "ExtraQuest": {
+    "base": 1,
+    "unit": "",
+    "steps": [
+      1,
+      1,
+      1
+    ],
+    "repeatStep": null,
+    "modType": "Add"
+  },
+  "CustomerBuyNum": {
+    "base": 0,
+    "unit": "%",
+    "steps": [
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      10
+    ],
+    "repeatStep": 10,
+    "modType": "Add"
+  },
+  "FactoryConsumeSpeed": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      25,
+      5
+    ],
+    "repeatStep": 5,
+    "modType": "Increase"
+  },
+  "GeneralGoodsProfit": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      10,
+      14,
+      16,
+      18,
+      22
+    ],
+    "repeatStep": null,
+    "modType": "Increase"
+  },
+  "PotionProfit": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      10,
+      14,
+      16,
+      18,
+      22
+    ],
+    "repeatStep": null,
+    "modType": "Increase"
+  },
+  "LiquidProfit": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      10,
+      14,
+      16,
+      18,
+      22
+    ],
+    "repeatStep": null,
+    "modType": "Increase"
+  },
+  "JewelProfit": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      10,
+      14,
+      16,
+      18,
+      22
+    ],
+    "repeatStep": null,
+    "modType": "Increase"
+  },
+  "RelicProfit": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      10,
+      14,
+      16,
+      18,
+      22
+    ],
+    "repeatStep": null,
+    "modType": "Increase"
+  },
+  "ContractProfit": {
+    "base": 0,
+    "unit": "%",
+    "steps": [
+      8,
+      10,
+      12,
+      14,
+      16
+    ],
+    "repeatStep": null,
+    "modType": "Add"
+  },
+  "PortalTrafficRate": {
+    "base": 100,
+    "unit": "%",
+    "steps": [
+      30,
+      30,
+      40,
+      50
+    ],
+    "repeatStep": null,
+    "modType": "Increase"
+  }
+}

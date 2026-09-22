@@ -5,6 +5,8 @@ export interface EfficiencyContext {
   alchemyMultiplier: number;    // 1 + alchemySkill * 0.06
   fuelMultiplier: number;       // 1 + fuelEfficiency * 0.1
   fertilizerMultiplier: number; // 1 + fertilizerEfficiency * 0.1
+  useThermalExtractor: boolean; // Extraction recipes run in the Thermal Extractor
+  thermalYieldMultiplier: number; // Thermal Extractor only: 1 + min(2, floors * 0.125)
   beltLimit: number;
   selectedFuel: string;
   selectedFertilizer?: string;
@@ -30,6 +32,9 @@ export type LPPlannerConfig = PlannerConfig;
 
 // Epsilon for floating point comparisons
 export const EPSILON = 1e-6;
+
+// Only this machine gets the build-height yield bonus (bThermal on ExtractFacilityComponent)
+export const THERMAL_EXTRACTOR = "thermal extractor";
 
 // Machines that get the alchemy skill multiplier on outputs
 export const ALCHEMY_MACHINES = [

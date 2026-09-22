@@ -4,7 +4,7 @@ import { calculateProductionLP } from "../engine/lp-planner/index";
 import { PlannerConfig } from "../engine/types";
 
 describe("Graph Mapper", () => {
-  test("should generate correct nodes for simple production", () => {
+  test("should generate correct nodes for simple production", async () => {
     const config: PlannerConfig = {
       targets: [{ item: "Plank", rate: 10 }],
       availableResources: [],
@@ -23,7 +23,7 @@ describe("Graph Mapper", () => {
     };
 
     const productionTrees = calculateProductionLP(config);
-    const { nodes, edges } = generateGraph(productionTrees);
+    const { nodes, edges } = await generateGraph(productionTrees);
 
     // Should have a target node for Plank
     const targetNodes = nodes.filter((n: any) => n.data.isTarget);
@@ -44,7 +44,7 @@ describe("Graph Mapper", () => {
     expect(logsNode.data.rate).toBe(10);
   });
 
-  test("should handle circular dependencies with correct net output rates", () => {
+  test("should handle circular dependencies with correct net output rates", async () => {
     const config: PlannerConfig = {
       targets: [
         { item: "Basic Fertilizer", rate: 10 },
@@ -66,7 +66,7 @@ describe("Graph Mapper", () => {
     };
 
     const productionTrees = calculateProductionLP(config);
-    const { nodes, edges } = generateGraph(productionTrees);
+    const { nodes, edges } = await generateGraph(productionTrees);
 
     // Should have 2 target nodes
     const targetNodes = nodes.filter((n: any) => n.data.isTarget);
@@ -102,7 +102,7 @@ describe("Graph Mapper", () => {
     expect(logsNode).toBeDefined();
   });
 
-  test("should generate edges between production nodes", () => {
+  test("should generate edges between production nodes", async () => {
     const config: PlannerConfig = {
       targets: [{ item: "Basic Fertilizer", rate: 10 }],
       availableResources: [],
@@ -121,7 +121,7 @@ describe("Graph Mapper", () => {
     };
 
     const productionTrees = calculateProductionLP(config);
-    const { nodes, edges } = generateGraph(productionTrees);
+    const { nodes, edges } = await generateGraph(productionTrees);
 
     // Should have edges connecting nodes
     expect(edges.length).toBeGreaterThan(0);
@@ -143,7 +143,7 @@ describe("Graph Mapper", () => {
     expect(edgesToTarget.length).toBeGreaterThan(0);
   });
 
-  test("should not duplicate nodes for same item", () => {
+  test("should not duplicate nodes for same item", async () => {
     const config: PlannerConfig = {
       targets: [{ item: "Basic Fertilizer", rate: 10 }],
       availableResources: [],
@@ -162,7 +162,7 @@ describe("Graph Mapper", () => {
     };
 
     const productionTrees = calculateProductionLP(config);
-    const { nodes } = generateGraph(productionTrees);
+    const { nodes } = await generateGraph(productionTrees);
 
     // Check for duplicate node IDs
     const nodeIds = nodes.map((n: any) => n.id);
@@ -174,7 +174,7 @@ describe("Graph Mapper", () => {
     expect(logsNodes).toHaveLength(1);
   });
 
-  test("should include device counts in production nodes", () => {
+  test("should include device counts in production nodes", async () => {
     const config: PlannerConfig = {
       targets: [{ item: "Plank", rate: 10 }],
       availableResources: [],
@@ -193,7 +193,7 @@ describe("Graph Mapper", () => {
     };
 
     const productionTrees = calculateProductionLP(config);
-    const { nodes } = generateGraph(productionTrees);
+    const { nodes } = await generateGraph(productionTrees);
 
     // Find production node for Plank (not the target node)
     const plankProdNode = nodes.find(
@@ -205,7 +205,7 @@ describe("Graph Mapper", () => {
     expect(plankProdNode.data.deviceId).toBe("table-saw");
   });
 
-  test("should include parent furnace info for heated devices", () => {
+  test("should include parent furnace info for heated devices", async () => {
     const config: PlannerConfig = {
       targets: [{ item: "Quicklime", rate: 10 }],
       availableResources: [],
@@ -224,7 +224,7 @@ describe("Graph Mapper", () => {
     };
 
     const productionTrees = calculateProductionLP(config);
-    const { nodes } = generateGraph(productionTrees);
+    const { nodes } = await generateGraph(productionTrees);
 
     // Find production node for Quicklime (uses Crucible, which requires furnace)
     const quicklimeNode = nodes.find(

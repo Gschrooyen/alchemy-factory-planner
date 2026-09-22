@@ -1,6 +1,9 @@
 import { describe, test, expect } from "bun:test";
 import { calculateProduction } from "./planner";
 import { calculateProductionLP } from "./lp-planner";
+import { calculateThermalYieldMultiplier } from "./lp-planner/efficiency";
+import { getRecipeById } from "./lp-planner/model-builder";
+import { getEffectiveRecipeTime, recipeNutrients } from "./item-utils";
 import { PlannerConfig, ProductionNode } from "./types";
 
 // Run tests against both planner implementations
@@ -246,8 +249,8 @@ planners.forEach(({ name, fn: calculateFn }) => {
     // Cycle time = nutrients per cycle / nutrients_per_seconds
     // Basic (12/s): 200 * 24 / 12 = 400s -> 30 Flax/min/nursery -> 2 nurseries
     expect(nurseries("Basic Fertilizer")).toBeCloseTo(2, 3);
-    // Advanced (144/s): 12x faster -> 1/6 nursery
-    expect(nurseries("Advanced Fertilizer")).toBeCloseTo(2 / 12, 3);
+    // Advanced (144/s): 12x faster, but a nursery can't exceed one belt (60/min at Logistics 0) -> 1 nursery
+    expect(nurseries("Advanced Fertilizer")).toBeCloseTo(1, 3);
   });
 
   test("Complex production chain with multiple nursery recipes (Bandage)", () => {
@@ -705,5 +708,197 @@ describe("LP Planner - Circular Dependencies", () => {
 
     const totalRate = allFertNodes.reduce((sum, n) => sum + n.rate, 0);
     console.log(`✓ Total rate accessible: ${totalRate.toFixed(1)}/min`);
+  });
+});
+
+// Thermal Extractor build-height yield bonus
+// (UExtractFacilityComponent::GetProductionMultiplier: 1 + clamp(BuiltHeight/128, 0, 2),
+//  one storey = 16 grid Z units, so +12.5%/storey, capped at +200%)
+describe("Thermal Extractor height bonus", () => {
+  const base: PlannerConfig = {
+    targets: [{ item: "Linseed Oil", rate: 100 }],
+    availableResources: [],
+    fuelEfficiency: 0,
+    alchemySkill: 0,
+    factoryEfficiency: 0,
+    logisticsEfficiency: 0,
+    throwingEfficiency: 0,
+    fertilizerEfficiency: 0,
+    salesAbility: 0,
+    negotiationSkill: 0,
+    customerMgmt: 0,
+    relicKnowledge: 0,
+    selectedFuel: "Logs",
+  };
+
+  test("multiplier curve: +12.5% per floor, capped at +200%", () => {
+    expect(calculateThermalYieldMultiplier(0)).toBe(1);
+    expect(calculateThermalYieldMultiplier(1)).toBeCloseTo(1.125);
+    expect(calculateThermalYieldMultiplier(8)).toBeCloseTo(2);
+    expect(calculateThermalYieldMultiplier(16)).toBeCloseTo(3);
+    expect(calculateThermalYieldMultiplier(40)).toBeCloseTo(3); // capped
+  });
+
+  test("height cuts the machines needed; plain Extractor ignores floors", () => {
+    const flaxFor = (config: PlannerConfig) => {
+      const flat = [] as ProductionNode[];
+      const walk = (n: ProductionNode) => { flat.push(n); n.inputs.forEach(walk); };
+      calculateProductionLP(config).forEach(walk);
+      const oil = flat.find((n) => n.itemName === "Linseed Oil" && !n.isRaw);
+      expect(oil).toBeDefined();
+      return oil!.deviceCount;
+    };
+
+    const plain = flaxFor({ ...base, thermalExtractorFloors: 8 });
+    const ground = flaxFor({ ...base, useThermalExtractor: true, thermalExtractorFloors: 0 });
+    const high = flaxFor({ ...base, useThermalExtractor: true, thermalExtractorFloors: 8 });
+
+    expect(plain).toBeCloseTo(ground);       // floors do nothing without a Thermal Extractor
+    expect(high).toBeCloseTo(ground / 2);    // 8 floors = double yield = half the machines
+  });
+});
+
+// LP objective: cheapest raw materials vs fewest buildings
+describe("optimizeFor", () => {
+  const base = {
+    targets: [{ item: "Coke", rate: 60 }],
+    availableResources: [],
+    fuelEfficiency: 0,
+    alchemySkill: 0,
+    factoryEfficiency: 0,
+    logisticsEfficiency: 0,
+    throwingEfficiency: 0,
+    fertilizerEfficiency: 0,
+    salesAbility: 0,
+    negotiationSkill: 0,
+    customerMgmt: 0,
+    relicKnowledge: 0,
+    selectedFuel: "",
+  } as PlannerConfig;
+
+  const summarize = (config: PlannerConfig) => {
+    const recipes = new Map<string, number>();
+    const seen = new Set<ProductionNode>();
+    const walk = (n: ProductionNode) => {
+      if (seen.has(n)) return;
+      seen.add(n);
+      if (!n.isRaw && n.recipeId) {
+        recipes.set(n.recipeId, Math.max(recipes.get(n.recipeId) ?? 0, n.deviceCount));
+      }
+      n.inputs.forEach(walk);
+    };
+    calculateProductionLP(config).forEach(walk);
+    return { recipes, machines: [...recipes.values()].reduce((a, b) => a + b, 0) };
+  };
+
+  test("fewest machines takes the short route the cost objective rejects", () => {
+    const cheapest = summarize({ ...base, optimizeFor: "cost" });
+    const fewest = summarize({ ...base, optimizeFor: "machines" });
+
+    // Coke from logs is ~4x cheaper per unit but needs saw -> crucible -> grinder -> athanor
+    expect(cheapest.recipes.has("coke")).toBe(true);
+    // Coke from coal ore is two steps: crusher -> crucible
+    expect(fewest.recipes.has("coke_alt")).toBe(true);
+    expect(fewest.recipes.has("coke")).toBe(false);
+    expect(fewest.machines).toBeLessThan(cheapest.machines / 5);
+  });
+
+  test("defaults to cost when unset", () => {
+    expect(summarize({ ...base }).machines).toBeCloseTo(summarize({ ...base, optimizeFor: "cost" }).machines);
+  });
+});
+
+// Cauldron override: swap one item's production to a chosen brew; upstream re-plans for the ingredients
+describe("cauldronOverrides", () => {
+  const base = {
+    targets: [{ item: "Coke", rate: 30 }],
+    availableResources: [],
+    fuelEfficiency: 0,
+    alchemySkill: 0,
+    factoryEfficiency: 0,
+    logisticsEfficiency: 0,
+    throwingEfficiency: 0,
+    fertilizerEfficiency: 0,
+    salesAbility: 0,
+    negotiationSkill: 0,
+    customerMgmt: 0,
+    relicKnowledge: 0,
+    selectedFuel: "",
+  } as PlannerConfig;
+
+  const flatten = (nodes: ProductionNode[]) => {
+    const out: ProductionNode[] = [];
+    const seen = new Set<ProductionNode>();
+    const walk = (n: ProductionNode) => { if (seen.has(n)) return; seen.add(n); out.push(n); n.inputs.forEach(walk); };
+    nodes.forEach(walk);
+    return out;
+  };
+
+  test("Coke brewed from 2x Basic Fertilizer + Brick replaces the coal/charcoal chains", () => {
+    const nodes = flatten(calculateProductionLP({ ...base, cauldronOverrides: { coke: ["basicfertilizer", "basicfertilizer", "brick"] } }));
+    const coke = nodes.find((n) => n.itemName === "Coke" && !n.isRaw)!;
+    expect(coke.recipeId).toBe("cauldron:coke");
+    expect(coke.deviceId).toBe("cauldron");
+    expect(coke.heatConsumption).toBeGreaterThan(0); // brews draw heat
+    const names = new Set(nodes.map((n) => n.itemName));
+    expect(names.has("Brick")).toBe(true);
+    expect(names.has("Basic Fertilizer")).toBe(true);
+    expect(nodes.some((n) => n.recipeId === "coke" || n.recipeId === "coke_alt")).toBe(false);
+  });
+
+  test("an override that would not brew the item is ignored", () => {
+    const nodes = flatten(calculateProductionLP({ ...base, cauldronOverrides: { coke: ["wood", "wood", "wood"] } }));
+    const coke = nodes.find((n) => n.itemName === "Coke" && !n.isRaw)!;
+    expect(["coke", "coke_alt"]).toContain(coke.recipeId); // normal recipes stay available
+  });
+});
+
+describe("LP Planner - target that is also the fuel", () => {
+  const base = {
+    targets: [{ item: "Blast Potion", rate: 20 }], availableResources: [],
+    factoryEfficiency: 4, alchemySkill: 0, fuelEfficiency: 0, logisticsEfficiency: 0, fertilizerEfficiency: 0,
+    salesAbility: 0, throwingEfficiency: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0,
+    selectedFuel: "blastpotion", selectedFertilizer: "", selfFertilizer: true, optimizeFor: "cost" as const,
+  };
+  const blender = (nodes: ProductionNode[]) => nodes.find((n) => n.itemName === "Blast Potion" && !n.isRaw)!;
+
+  test("self-fuel off: heat is bought, blenders only cover the target", () => {
+    const bp = blender(calculateProductionLP({ ...base, selfFuel: false } as PlannerConfig));
+    expect(bp.rate).toBeCloseTo(20, 1);
+    expect(bp.deviceCount).toBeCloseTo(1, 2); // 6s recipe at 200% speed
+  });
+
+  test("self-fuel on: extra potions are brewed to burn", () => {
+    const bp = blender(calculateProductionLP({ ...base, selfFuel: true } as PlannerConfig));
+    expect(bp.rate).toBeGreaterThan(20.5);
+  });
+});
+
+describe("World Trees", () => {
+  const base = {
+    targets: [{ item: "World Tree Leaf", rate: 40 }], availableResources: [],
+    factoryEfficiency: 0, alchemySkill: 0, fuelEfficiency: 0, logisticsEfficiency: 4, fertilizerEfficiency: 14,
+    salesAbility: 0, throwingEfficiency: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0,
+    selectedFuel: "coal", selfFertilizer: false, selfFuel: false, optimizeFor: "cost" as const,
+  };
+  test("planner prefers the Miniature World Tree for leaves: 40/min per tree at a flat 20k V/s, no cores", () => {
+    for (const fert of ["Fertile Catalyst", "Basic Fertilizer"]) {
+      const n = calculateProductionLP({ ...base, selectedFertilizer: fert } as PlannerConfig)[0];
+      expect(n.deviceId).toBe("miniature-world-tree");
+      expect(n.deviceCount).toBeCloseTo(1, 2);
+      expect(n.byproducts.length).toBe(0);
+    }
+    // Fertile Catalyst 24k V x 2.4 research: 20k V/s -> one every 2.88 s -> 20.8/min
+    const n = calculateProductionLP({ ...base, selectedFertilizer: "Fertile Catalyst" } as PlannerConfig)[0];
+    expect(n.inputs.find((i) => i.inputKind === "fertilizer")!.rate).toBeCloseTo(20000 * 60 / (24000 * 2.4), 1);
+    // ...and factory speed research doesn't speed trees up
+    const fast = calculateProductionLP({ ...base, factoryEfficiency: 4, selectedFertilizer: "Fertile Catalyst" } as PlannerConfig)[0];
+    expect(fast.deviceCount).toBeCloseTo(1, 2);
+  });
+  test("World Tree Nursery: 99 leaves + 1 core per 6M V at 40k V/s = 150 s (39.6 leaves/min), whatever the fertilizer", () => {
+    const tree = getRecipeById("world-tree")!;
+    expect(recipeNutrients(tree)).toBe(6_000_000);
+    expect(getEffectiveRecipeTime(tree, "Basic Fertilizer", 2.4)).toBeCloseTo(150, 3);
+    expect(getEffectiveRecipeTime(tree, "Fertile Catalyst", 2.4, 120, 2)).toBeCloseTo(300, 3); // pre-scaled to cancel 200% speed
   });
 });

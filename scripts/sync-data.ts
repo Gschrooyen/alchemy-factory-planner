@@ -43,6 +43,8 @@ interface LocalItem {
   cauldron_target?: number;
   cauldron_coef?: number;
   cauldron_efficiency?: number;
+  liquid?: boolean; // Needs pipes; cannot be belted or thrown into a cauldron
+  hidden?: boolean; // bHideInGame in DT_Enemies: defined but not obtainable in the shipped game
   [key: string]: any;
 }
 
@@ -122,10 +124,17 @@ function pascalToKebab(str: string): string {
 // Special building ID mappings (remote ID → local ID)
 const BUILDING_ID_OVERRIDES: Record<string, string> = {
   'auto-nursery': 'nursery',
+  'mini-world-tree': 'miniature-world-tree',
   'portal-alch-guild': 'purchasing-portal',
   'portal-bank': 'bank-portal',
   'portal-wholesaling': 'dispatch-portal',
 };
+
+// Items flagged bHideInGame in the game's DT_Enemies table (extracted from the paks). The community
+// items.json does not carry the flag, so it is pinned here; they exist as data but not in play.
+const HIDDEN_IN_GAME = new Set([
+  'sand2', 'sand3', 'sand4', 'sand5', 'sand6', 'sand7', 'sand8', 'aloe', 'aloeseed', 'aloepaste', 'ironamulet', 'copperamulet', 'finebandage', 'amethyst', 'charismapotion', 'invisbilitypotion', 'golddust4', 'salve', 'woodacid', 'pottery', 'ceramics', 'firebrick', 'granite', 'driedclay',
+]);
 
 // Craft type to device name mapping (from machine_types.json in AlchemyFactoryData)
 // Device names use kebab-case to match device IDs in devices.json
@@ -154,6 +163,7 @@ const CRAFT_TYPE_TO_DEVICE: Record<number, string> = {
   21: 'paradox-crucible',
   22: 'cauldron',
   23: 'arcane-processor',    // Arcane Processor
+  24: 'brew-barrel',         // Beverages (1.0)
 };
 
 const CRAFT_TYPE_CATEGORIES: Record<number, string> = {
@@ -172,6 +182,7 @@ const CRAFT_TYPE_CATEGORIES: Record<number, string> = {
   12: 'potions',       // athanor - advanced potions
   13: 'essence',       // alembic - essential oils, acids
   14: 'liquid',        // refiner - refined liquids
+  24: 'beverage',      // brew barrel - drinks
 };
 
 function transformItems(
@@ -185,6 +196,10 @@ function transformItems(
     const productName = seed.product.name.toLowerCase();
     plantNutrients.set(productName, seed.growthNutrientValue);
   });
+  // World Tree, measured in game: 30k V per leaf; the core carries the rest of the 6M V cycle (99 leaves + 1 core
+  // per 150 s at 40k V/s). TreeStage3's 60k is both folded together.
+  plantNutrients.set('worldtreeleaf', 30000);
+  plantNutrients.set('worldtreecore', 6000000 - 99 * 30000);
 
   // Build lookup for recipe outputs to determine categories
   const recipeOutputs = new Map<string, RemoteCrafting>();
@@ -288,6 +303,13 @@ function transformItems(
         transformed.base_cost = item.value;
       }
 
+      if (item.liquid) {
+        transformed.liquid = true;
+      }
+      if (HIDDEN_IN_GAME.has(transformed.id)) {
+        transformed.hidden = true;
+      }
+
       // Map cauldron properties
       if (item.cauldronCost !== undefined) {
         transformed.cauldron_cost = item.cauldronCost;
@@ -366,7 +388,8 @@ function transformBuildings(
         buildingId.includes('furnace') ||
         buildingId.includes('stove') ||
         buildingId.includes('portal') ||
-        buildingId.includes('nursery');
+        buildingId.includes('nursery') ||
+        buildingId === 'miniature-world-tree';
 
       return isUsedInRecipe || isSupportBuilding;
     })
@@ -426,6 +449,28 @@ function camelCaseToSpaced(name: string): string {
     .replace(/([a-z])([A-Z])/g, '$1 $2')  // Add space between camelCase words
     .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')  // Handle consecutive caps
     .toLowerCase();
+}
+
+/**
+ * The World Tree has no crafting entry: the seed is part of the World Tree Nursery building and the
+ * grown tree (plantseeds TreeStage3) keeps yielding leaves plus a core every cycle. Same nutrient
+ * schema as the other plants (growthNutrientValue is per product item).
+ */
+function worldTreeRecipes(plantSeeds: PlantSeed[], remoteItems: RemoteItem[]): LocalRecipe[] {
+  const display = (name: string) => remoteItems.find(i => (i.name || '').toLowerCase() === name.toLowerCase())?.displayName || name;
+  const stage = plantSeeds.find(s => s.id === 'TreeStage3');
+  if (!stage) return [];
+  // 99 leaves + 1 core per cycle (TreeStage3); measured 39.6 leaves/min at the tree's 40k V/s intake = 150 s
+  const outputs = [{ id: stage.product.name.toLowerCase(), name: display(stage.product.name), count: stage.product.qty }];
+  if (stage.sideProduct && stage.sideProduct.name !== 'None') {
+    outputs.push({ id: stage.sideProduct.name.toLowerCase(), name: display(stage.sideProduct.name), count: stage.sideProduct.qty });
+  }
+  const leaf = outputs[0];
+  return [
+    { id: 'world-tree', inputs: [], outputs, time: 150, crafted_in: 'world-tree-nursery', category: 'herbs' },
+    // Miniature World Tree: leaves only, 20k V/s intake -> one 30k V leaf per 1.5 s
+    { id: 'miniature-world-tree', inputs: [], outputs: [{ ...leaf, count: 1 }], time: 1.5, crafted_in: 'miniature-world-tree', category: 'herbs' },
+  ];
 }
 
 function transformCrafting(
@@ -523,7 +568,7 @@ async function main() {
 
     // Transform data (pass dependencies for proper transformation)
     console.log('🔄 Transforming data...');
-    const localRecipes = transformCrafting(remoteCrafting, remoteItems);
+    const localRecipes = [...transformCrafting(remoteCrafting, remoteItems), ...worldTreeRecipes(plantSeeds, remoteItems)];
     const localItems = transformItems(remoteItems, plantSeeds, remoteCrafting);
     const localDevices = transformBuildings(remoteBuildings, remoteCrafting, deviceMetadata);
 

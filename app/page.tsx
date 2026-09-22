@@ -12,7 +12,7 @@ import {
 import { FactoryTabs } from "../components/dashboard/FactoryTabs";
 import { GlobalResearchPanel } from "../components/dashboard/GlobalResearchPanel";
 import { IOSummaryPanel } from "../components/dashboard/IOSummaryPanel";
-import { NodeView } from "../components/dashboard/NodeView";
+import { ProductionTable } from "../components/dashboard/ProductionTable";
 import { ProductionNode, Item } from "../engine/types";
 import { useFactoryStore } from "../store/useFactoryStore";
 import itemsData from "../data/items.json";
@@ -20,21 +20,28 @@ import { SetupgradesHandler } from "../components/SetupgradesHandler";
 
 // Types
 const items = itemsData as unknown as Item[];
-const sortedItems = [...items].sort((a, b) => a.name.localeCompare(b.name));
+// Hidden items (e.g. the internal Refined Sand tiers) share names with visible ones; they would duplicate rows
+const sortedItems = items.filter((i) => !i.hidden).sort((a, b) => a.name.localeCompare(b.name));
 // Filter lists for selectors
 const FERTILIZERS = items.filter(
   (i) =>
     i.category === "fertilizer" ||
     (Array.isArray(i.category) && i.category.includes("fertilizer")),
 );
-const FUELS = items.filter((i) => i.heat_value && i.heat_value > 0);
+const FUELS = items.filter((i) => !i.hidden && i.heat_value && i.heat_value > 0);
 
+
+const itemName = (id: string) => items.find((i) => i.id === id)?.name ?? id;
+
+const summaryClass =
+  "cursor-pointer select-none text-xs uppercase tracking-widest text-[var(--text-secondary)] hover:text-[var(--accent-gold)] list-none flex items-center gap-2 py-1";
 
 export default function PlannerPage() {
   const {
     factories,
     activeFactoryId,
     addFactory,
+    updateFactoryConfig,
   } = useFactoryStore();
 
   const [isLoaded, setIsLoaded] = useState(false);
@@ -118,8 +125,11 @@ export default function PlannerPage() {
         );
       }
       node.byproducts.forEach((bp) => {
-        outputs.set(bp.itemName, (outputs.get(bp.itemName) || 0) + bp.rate);
+        outputs.set(bp.itemName, (outputs.get(bp.itemName) || 0) + (bp.remaining ?? bp.rate));
       });
+      if (!isRoot && node.surplus) {
+        outputs.set(node.itemName, (outputs.get(node.itemName) || 0) + node.surplus);
+      }
       if (node.inputs.length === 0 && node.deviceCount === 0) {
         inputs.set(node.itemName, (inputs.get(node.itemName) || 0) + node.rate);
       }
@@ -143,35 +153,33 @@ export default function PlannerPage() {
 
 
   return (
-    <div className="bg-[var(--background)] text-[var(--text-primary)] font-sans p-2 lg:p-8 pt-0 lg:pt-0 flex flex-col gap-4 bg-arcane-pattern">
+    <div className="bg-[var(--background)] text-[var(--text-primary)] font-sans p-2 lg:p-8 pt-0 lg:pt-0 flex flex-col gap-4 bg-arcane-pattern min-h-screen">
       {/* Query parameter handler */}
       <Suspense fallback={null}>
         <SetupgradesHandler />
       </Suspense>
 
-      {/* Calculator Controls */}
-      <div className="flex flex-col gap-4">
-        {/* Global Research Panel */}
+      {/* Native <details> to collapse each block (no `group` class here: it would fire every group-hover tooltip inside) */}
+      <details open className="flex flex-col gap-4 [&[open]_.chev]:rotate-90">
+        <summary className={summaryClass} title="Collapse or expand the skills">
+          <span className="chev inline-block transition-transform">▶</span> Skills
+        </summary>
         <GlobalResearchPanel />
+      </details>
 
-        {/* Tab Bar */}
-        <FactoryTabs />
-      </div>
+      <details open className="flex flex-col gap-4 [&[open]_.chev]:rotate-90">
+        <summary className={summaryClass} title="Collapse or expand the factory panels">
+          <span className="chev inline-block transition-transform">▶</span> Factory setup
+        </summary>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+          <ProductionTargetsPanel items={sortedItems} />
+          <AvailableResourcesPanel items={sortedItems} />
+          <FactorySettingsPanel fertilizers={FERTILIZERS} fuels={FUELS} />
+          <IOSummaryPanel stats={stats} ioSummary={ioSummary} />
+        </div>
+      </details>
 
-      {/* Dashboard Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-        {/* Panel 1: Production Targets */}
-        <ProductionTargetsPanel items={sortedItems} />
-
-        {/* Panel 2: Available Resources */}
-        <AvailableResourcesPanel items={sortedItems} />
-
-        {/* Panel 2: Configuration */}
-        <FactorySettingsPanel fertilizers={FERTILIZERS} fuels={FUELS} />
-
-        {/* Panel 3: IO Summary */}
-        <IOSummaryPanel stats={stats} ioSummary={ioSummary} />
-      </div>
+      <FactoryTabs />
 
       <main className="flex-1 flex flex-col gap-6 min-h-0">
         {/* View Area */}
@@ -191,17 +199,7 @@ export default function PlannerPage() {
                 <GraphView key={activeFactory.id} />
               ) : (
                 <div className="p-8 overflow-auto custom-scrollbar h-full pt-16">
-                  <div className="min-w-max space-y-8">
-                    {productionTrees.map((root, i) => (
-                      <div key={i} className="border-l-2 border-[var(--accent-gold-dim)] pl-4">
-                        <h3 className="text-[var(--accent-gold)] font-bold mb-4 uppercase text-xs tracking-widest flex items-center gap-2">
-                          <span className="w-2 h-2 bg-[var(--accent-gold)] rounded-full"></span>
-                          Target: {root.itemName}
-                        </h3>
-                        <NodeView node={root} depth={0} />
-                      </div>
-                    ))}
-                  </div>
+                  <ProductionTable roots={productionTrees} />
                 </div>
               )
             ) : (
@@ -212,8 +210,61 @@ export default function PlannerPage() {
                     <AlchemyIcon className="w-12 h-12 opacity-50 text-[var(--accent-purple)]" />
                   </div>
                 </div>
-                <p className="text-sm font-[family-name:var(--font-cinzel)]">Add a target to begin planning</p>
-                <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Select an item above to calculate production</p>
+                {activeFactory.targets.length > 0 ? (
+                  <>
+                    <p className="text-sm font-[family-name:var(--font-cinzel)] text-[var(--error)]">No feasible plan</p>
+                    <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] max-w-md text-center">
+                      A chosen cauldron or paradox brew needs its own product upstream (a loop with no net output), or the fuel /
+                      fertilizer setup can&apos;t be satisfied.
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {Object.entries(activeFactory.config.cauldronOverrides ?? {}).map(([id, inputs]) => (
+                        <button
+                          key={"c" + id}
+                          onClick={() => {
+                            const { [id]: _, ...rest } = activeFactory.config.cauldronOverrides ?? {};
+                            updateFactoryConfig(activeFactory.id, { cauldronOverrides: rest });
+                          }}
+                          className="px-2 py-1 text-xs rounded border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--error)] hover:text-[var(--error)]"
+                          title="Back to normal recipes"
+                        >
+                          Cauldron {itemName(id)} ← {inputs.map(itemName).join(" + ")} ✕
+                        </button>
+                      ))}
+                      {Object.entries(activeFactory.config.recipeOverrides ?? {}).map(([id, recipeId]) => (
+                        <button
+                          key={"r" + id}
+                          onClick={() => {
+                            const { [id]: _, ...rest } = activeFactory.config.recipeOverrides ?? {};
+                            updateFactoryConfig(activeFactory.id, { recipeOverrides: rest });
+                          }}
+                          className="px-2 py-1 text-xs rounded border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--error)] hover:text-[var(--error)]"
+                          title="Let the planner choose again"
+                        >
+                          Recipe {itemName(id)} ← {recipeId} ✕
+                        </button>
+                      ))}
+                      {Object.entries(activeFactory.config.paradoxOverrides ?? {}).map(([id, input]) => (
+                        <button
+                          key={"p" + id}
+                          onClick={() => {
+                            const { [id]: _, ...rest } = activeFactory.config.paradoxOverrides ?? {};
+                            updateFactoryConfig(activeFactory.id, { paradoxOverrides: rest });
+                          }}
+                          className="px-2 py-1 text-xs rounded border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--error)] hover:text-[var(--error)]"
+                          title="Back to normal recipes"
+                        >
+                          Paradox {itemName(id)} ← {itemName(input)} ✕
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-[family-name:var(--font-cinzel)]">Add a target to begin planning</p>
+                    <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">Select an item above to calculate production</p>
+                  </>
+                )}
               </div>
             )}
           </div>
