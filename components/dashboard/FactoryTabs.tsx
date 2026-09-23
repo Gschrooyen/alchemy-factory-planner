@@ -1,7 +1,6 @@
 import { Check, GitGraph, LayoutList, Link2, PlusCircle, X } from "lucide-react";
 import { useState } from "react";
 import { encodeShare, SHARE_PARAM } from "../../lib/share";
-import { BlueprintExportButton } from "./BlueprintExportButton";
 import type { FactoryState } from "../../engine/types";
 import { cn } from "../../lib/utils";
 import { useFactoryStore } from "../../store/useFactoryStore";
@@ -108,7 +107,6 @@ export function FactoryTabs() {
             </button>
             <div className="flex-1"></div>
 
-            {activeFactory && <BlueprintExportButton factoryName={activeFactory.name} roots={activeFactory.productionTrees} />}
             {activeFactory && <ShareButton factory={activeFactory} />}
 
             {/* View Toggle Bar */}

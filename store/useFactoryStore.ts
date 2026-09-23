@@ -30,6 +30,7 @@ export interface FactoryData extends FactoryState {
     productionTrees: ProductionNode[];
     viewport: Viewport;
     active: boolean;
+    done?: string[]; // production node ids marked as built in-game
 }
 
 // Initial Research State
@@ -111,6 +112,8 @@ interface FactoryStore {
     layoutAlgorithm: LayoutAlgorithm;
     setLayoutAlgorithm: (a: LayoutAlgorithm) => void;
     toggleUtilityEdges: () => void;
+    toggleDone: (id: string, nodeKey: string) => void;
+    clearDone: (id: string) => void;
 }
 
 export const useFactoryStore = create<FactoryStore>()(
@@ -123,6 +126,10 @@ export const useFactoryStore = create<FactoryStore>()(
             layoutAlgorithm: "layered",
             setLayoutAlgorithm: (a) => { set({ layoutAlgorithm: a }); const id = get().activeFactoryId; if (id) get().resetFactoryLayout(id); },
             toggleUtilityEdges: () => set((s) => ({ showUtilityEdges: !s.showUtilityEdges })),
+            toggleDone: (id, nodeKey) => set((s) => ({
+                factories: s.factories.map((f) => f.id !== id ? f : { ...f, done: f.done?.includes(nodeKey) ? f.done.filter((k) => k !== nodeKey) : [...(f.done ?? []), nodeKey] }),
+            })),
+            clearDone: (id) => set((s) => ({ factories: s.factories.map((f) => (f.id !== id ? f : { ...f, done: [] })) })),
 
             addFactory: () => {
                 const id = crypto.randomUUID();

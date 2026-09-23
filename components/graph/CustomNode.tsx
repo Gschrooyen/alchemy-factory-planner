@@ -7,6 +7,7 @@ import { MachineCountInput } from "../dashboard/MachineCountInput";
 import { CauldronSwapButton } from "../dashboard/CauldronWizard";
 import { ParadoxSwapButton } from "../dashboard/ParadoxPicker";
 import { RecipeSwapButton } from "../dashboard/RecipePicker";
+import { DoneToggle, useDone } from "../dashboard/DoneToggle";
 
 export function CustomNode({ data }: { data: ProductionNode & { displayRate?: number; inputItems?: GraphInputItem[] } }) {
     // Cast to access properties safely if TS complains
@@ -33,6 +34,8 @@ export function CustomNode({ data }: { data: ProductionNode & { displayRate?: nu
     );
 
     const isMachine = nodeData.deviceCount > 0;
+    const nodeKey = nodeData.id ?? nodeData.itemName;
+    const done = useDone().isDone(nodeKey);
     const isSaturated = nodeData.isBeltSaturated;
     const isTarget = nodeData.isTarget;
     const isByproduct = (nodeData as { isByproduct?: boolean }).isByproduct;
@@ -53,6 +56,7 @@ export function CustomNode({ data }: { data: ProductionNode & { displayRate?: nu
                         ? "border-[var(--accent-gold-dim)] hover:border-[var(--accent-gold)]"
                         : "border-[var(--border)] hover:border-[var(--accent-purple-dim)]",
                 isSaturated && !isTarget && "border-[var(--error)] bg-[var(--error-dim)]/20 shadow-[0_0_15px_rgba(224,85,85,0.2)]",
+                done && "opacity-60 border-[var(--success)]/60",
             )}
         >
             {/* Corner decorations for machine nodes */}
@@ -64,10 +68,11 @@ export function CustomNode({ data }: { data: ProductionNode & { displayRate?: nu
             )}
 
             {/* Header */}
-            <div className="flex justify-between items-start mb-2 pb-2 border-b border-[var(--border-subtle)]">
+            <div className="flex justify-between items-start gap-2 mb-2 pb-2 border-b border-[var(--border-subtle)]">
+                {isMachine && <DoneToggle nodeKey={nodeKey} className="mt-0.5" />}
                 <span
                     className={cn(
-                        "font-bold text-sm truncate",
+                        "font-bold text-sm truncate flex-1",
                         isTarget
                             ? "text-[var(--success)]"
                             : isMachine

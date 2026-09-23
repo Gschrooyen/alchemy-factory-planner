@@ -1,3 +1,4 @@
+import { DoneToggle, useDone } from "./DoneToggle";
 import { Flame, Leaf } from "lucide-react";
 import { ProductionNode } from "../../engine/types";
 import { MachineCountInput } from "./MachineCountInput";
@@ -80,6 +81,8 @@ export function ProductionTable({ roots }: { roots: ProductionNode[] }) {
     const machines = rows.filter((r) => !r.node.isRaw && r.node.deviceCount > 0);
     const stages = [...new Set(machines.map((r) => r.stage))].sort((a, b) => a - b);
     const targets = new Set(roots.filter((r) => !r.isOrphanRoot).map((r) => r.itemName));
+    const { done, clear } = useDone();
+    const built = machines.filter((r) => done.has(r.node.id ?? r.node.itemName)).length;
 
     return (
         <div className="flex flex-col gap-6 text-sm">
@@ -101,10 +104,15 @@ export function ProductionTable({ roots }: { roots: ProductionNode[] }) {
                 </div>
             </section>
 
-            {/* One row per machine group, in build order */}
+            {/* One row per machine group, in build order; tick them off as you build */}
+            <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
+                <span><span className={built === machines.length && machines.length > 0 ? "text-[var(--success)] font-bold" : "text-[var(--text-primary)]"}>{built}</span> / {machines.length} built</span>
+                {built > 0 && <button onClick={clear} className="underline hover:text-[var(--text-primary)]">reset</button>}
+            </div>
             <table className="w-full border-separate border-spacing-0">
                 <thead className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                     <tr>
+                        <th className="w-6 px-2 py-1.5"></th>
                         <th className="text-left px-2 py-1.5 font-semibold">Product</th>
                         <th className="text-right px-2 py-1.5 font-semibold">Out /min</th>
                         <th className="text-left px-2 py-1.5 font-semibold">Machines</th>
@@ -130,17 +138,21 @@ export function ProductionTable({ roots }: { roots: ProductionNode[] }) {
 }
 
 function StageRows({ stage, last, rows, targets }: { stage: number; last: boolean; rows: Row[]; targets: Set<string> }) {
+    const { done } = useDone();
     return (
         <>
             <tr>
-                <td colSpan={6} className="pt-4 pb-1 px-2 text-[10px] uppercase tracking-widest text-[var(--accent-gold)] font-bold">
+                <td colSpan={7} className="pt-4 pb-1 px-2 text-[10px] uppercase tracking-widest text-[var(--accent-gold)] font-bold">
                     Stage {stage + 1}{last ? " · final" : ""}
                 </td>
             </tr>
             {rows.map(({ node, consumers }) => {
                 const isTarget = targets.has(node.itemName);
+                const key = node.id ?? node.itemName;
+                const built = done.has(key);
                 return (
-                    <tr key={node.id ?? node.itemName} className="align-top hover:bg-[var(--surface-elevated)]/60">
+                    <tr key={key} className={`align-top hover:bg-[var(--surface-elevated)]/60 ${built ? "opacity-50" : ""}`}>
+                        <td className="px-2 py-2.5 border-t border-[var(--border-subtle)]"><DoneToggle nodeKey={key} /></td>
                         <td className="px-2 py-2 border-t border-[var(--border-subtle)]">
                             <div className="flex items-center gap-2">
                                 <span className={`font-semibold ${isTarget ? "text-[var(--accent-gold-bright)]" : "text-[var(--text-primary)]"}`}>{node.itemName}</span>
