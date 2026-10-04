@@ -6,6 +6,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { ThemeInitializer } from "@/components/ui/ThemeInitializer";
 import { MAINTAINER, REPO_URL, SITE_URL, UPSTREAM } from "@/lib/site";
+import { version } from "../package.json";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -174,6 +175,16 @@ export default function RootLayout({
                 @{UPSTREAM.name}
               </a>
             </span>
+            <span className="text-[var(--border)]">|</span>
+            <a
+              href={`${REPO_URL}/releases/tag/v${version}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Release notes for this version"
+              className="font-mono hover:text-[var(--accent-gold)] transition-colors"
+            >
+              v{version}
+            </a>
           </div>
         </footer>
         <Analytics />

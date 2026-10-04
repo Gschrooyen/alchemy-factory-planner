@@ -47,6 +47,18 @@ bun --env-file=.env.local supabase/isolation-check.ts
 
 It creates two throwaway users, tries to read, change and delete across accounts, and exits non-zero if anything gets through.
 
+## Releasing
+
+Versions follow [semver](https://semver.org) and are shown in the footer (from `package.json`). To cut a release from a clean `main`:
+
+```bash
+bun pm version minor          # or patch / major: bumps package.json, commits, tags vX.Y.Z
+git push fork main --follow-tags
+gh release create vX.Y.Z --generate-notes --repo Gschrooyen/alchemy-factory-planner
+```
+
+The push deploys to Vercel. The footer version links to the release notes.
+
 ## License
 
 This repository mixes code under different terms:
