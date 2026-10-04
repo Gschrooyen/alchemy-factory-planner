@@ -150,6 +150,10 @@ export default function RootLayout({
               View on GitHub
             </a>
             <span className="text-[var(--border)]">|</span>
+            <a href="/privacy" className="hover:text-[var(--accent-gold)] transition-colors">
+              Privacy
+            </a>
+            <span className="text-[var(--border)]">|</span>
             <span>
               Fork by{" "}
               <a
