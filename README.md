@@ -46,3 +46,13 @@ bun --env-file=.env.local supabase/isolation-check.ts
 ```
 
 It creates two throwaway users, tries to read, change and delete across accounts, and exits non-zero if anything gets through.
+
+## License
+
+This repository mixes code under different terms:
+
+- **Original code** by [@moldy530](https://github.com/moldy530) in [moldy530/alchemy-factory-planner](https://github.com/moldy530/alchemy-factory-planner) has no license, so all rights stay with its author. That covers everything up to commit `779b8fe`, which is where this fork branched off.
+- **Changes made in this fork** after `779b8fe` are Copyright (C) 2026 Glenn Schrooyen and licensed under the [GNU General Public License v2.0 only](LICENSE) (`GPL-2.0-only`). The git history shows exactly which changes those are.
+- **Game data** in `data/` comes from Alchemy Factory and belongs to its developers.
+
+If the original project adopts a license, this section will be updated to match.
