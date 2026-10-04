@@ -31,6 +31,51 @@ export function toFactoryRow(f: FactoryData): FactoryRow {
 
 export const fromFactoryRow = (r: FactoryRow): FactoryData => ({ ...r.data, id: r.id, name: r.name, serverId: r.server_id, productionTrees: [] });
 
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** Skills only go up in-game, so the higher level per skill is the newer one. */
+function maxResearch(a: ServerData["research"], b: ServerData["research"]): ServerData["research"] {
+  const out = { ...a };
+  for (const k of Object.keys(b) as (keyof ServerData["research"])[]) out[k] = Math.max(a[k] ?? 0, b[k] ?? 0);
+  return out;
+}
+
+/**
+ * What to upload when this device first syncs with an account.
+ * Empty account: everything local, as is. Account with data: only factories with targets
+ * (not blank starters); a local server named like an account server joins it (factories
+ * move over, skills take the higher level) instead of becoming a duplicate.
+ */
+export function planMerge(
+  local: { servers: ServerData[]; factories: FactoryData[] },
+  remote: { servers: ServerRow[]; factories: { id: string }[] },
+): { servers: ServerRow[]; factories: FactoryRow[] } {
+  if (remote.servers.length === 0) {
+    return { servers: local.servers.map(toServerRow), factories: local.factories.map(toFactoryRow) };
+  }
+  const inCloud = new Set([...remote.servers, ...remote.factories].map((r) => r.id));
+  const work = local.factories.filter((f) => f.targets.length > 0 && !inCloud.has(f.id));
+  const servers = new Map<string, ServerRow>(); // rows to upsert
+  const target = new Map<string, string>(); // local server id -> server id in the account
+
+  for (const sv of local.servers) {
+    if (!work.some((f) => f.serverId === sv.id)) continue;
+    const match = remote.servers.find((r) => r.id === sv.id || sameName(r.name, sv.name));
+    if (match) {
+      const research = maxResearch(match.research, sv.research);
+      if (JSON.stringify(research) !== JSON.stringify(match.research)) servers.set(match.id, { ...match, research });
+      target.set(sv.id, match.id);
+    } else {
+      servers.set(sv.id, toServerRow(sv));
+      target.set(sv.id, sv.id);
+    }
+  }
+  return {
+    servers: [...servers.values()].map((r) => ({ id: r.id, name: r.name, research: r.research })),
+    factories: work.map((f) => toFactoryRow({ ...f, serverId: target.get(f.serverId) ?? f.serverId })),
+  };
+}
+
 /** Rows whose content differs from the last synced snapshot, and ids that are gone. */
 export function diffRows<T extends { id: string }>(snapshot: Map<string, string>, rows: T[]) {
   const ids = new Set(rows.map((r) => r.id));
@@ -160,17 +205,10 @@ export async function startSync(userId: string) {
 
   const local = useFactoryStore.getState();
   if (local.syncedUserId !== userId) {
-    // First sync on this device: keep local work, unless it's only the untouched starter factory
-    const hasWork = local.factories.some((f) => f.targets.length > 0);
-    if (remote.servers.length === 0 || hasWork) {
-      const inCloud = new Set([...remote.servers, ...remote.factories].map((r) => r.id));
-      const ok = await upload(
-        userId,
-        local.servers.filter((sv) => !inCloud.has(sv.id)).map(toServerRow),
-        local.factories.filter((f) => !inCloud.has(f.id)).map(toFactoryRow),
-        [],
-        [],
-      );
+    // First sync on this device: bring local work into the account
+    const merge = planMerge(local, remote);
+    if (merge.servers.length || merge.factories.length) {
+      const ok = await upload(userId, merge.servers, merge.factories, [], []);
       if (session !== s) return;
       if (!ok || !(remote = await pull())) return setStatus("error");
     }

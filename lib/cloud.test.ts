@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { diffRows, fromFactoryRow, toFactoryRow } from "./cloud";
+import { diffRows, fromFactoryRow, planMerge, toFactoryRow } from "./cloud";
 import { DEFAULT_RESEARCH, migrateV0, type FactoryData } from "../store/useFactoryStore";
 
 const factory = (id: string, serverId = "s1"): FactoryData => ({
@@ -36,6 +36,55 @@ describe("cloud sync", () => {
     expect(back.serverId).toBe("s1");
     expect(back.targets).toEqual([{ item: "plank", rate: 10 }]);
     expect(back.nodes[0].data).toEqual({ label: "x", inputs: [], byproducts: [] });
+  });
+
+  describe("first sign-in merge", () => {
+    const server = (id: string, name: string, alchemySkill = 0) => ({ id, name, research: { ...DEFAULT_RESEARCH, alchemySkill } });
+    const blank = (id: string, serverId: string) => ({ ...factory(id, serverId), targets: [] });
+
+    test("empty account takes everything local as is", () => {
+      const plan = planMerge({ servers: [server("s1", "My server")], factories: [factory("a"), blank("b", "s1")] }, { servers: [], factories: [] });
+      expect(plan.servers.map((s) => s.id)).toEqual(["s1"]);
+      expect(plan.factories.map((f) => f.id)).toEqual(["a", "b"]);
+    });
+
+    test("same-named server joins the account's, skills take the higher level", () => {
+      const plan = planMerge(
+        { servers: [server("local", " my SERVER ", 5)], factories: [factory("a", "local")] },
+        { servers: [server("cloud", "My server", 3)], factories: [{ id: "c1" }] },
+      );
+      expect(plan.servers).toEqual([{ id: "cloud", name: "My server", research: { ...DEFAULT_RESEARCH, alchemySkill: 5 } }]);
+      expect(plan.factories.map((f) => [f.id, f.server_id])).toEqual([["a", "cloud"]]);
+    });
+
+    test("account skills that are already higher aren't re-uploaded", () => {
+      const plan = planMerge(
+        { servers: [server("local", "My server", 1)], factories: [factory("a", "local")] },
+        { servers: [server("cloud", "My server", 4)], factories: [] },
+      );
+      expect(plan.servers).toEqual([]);
+      expect(plan.factories[0].server_id).toBe("cloud");
+    });
+
+    test("blank starters are left out; a new server with work is added", () => {
+      const plan = planMerge(
+        {
+          servers: [server("local1", "My server"), server("local2", "Second world")],
+          factories: [blank("starter", "local1"), factory("w", "local2")],
+        },
+        { servers: [server("cloud", "My server")], factories: [] },
+      );
+      expect(plan.servers.map((s) => s.id)).toEqual(["local2"]);
+      expect(plan.factories.map((f) => [f.id, f.server_id])).toEqual([["w", "local2"]]);
+    });
+
+    test("blank local data into an account with data uploads nothing", () => {
+      const plan = planMerge(
+        { servers: [server("local", "My server")], factories: [blank("starter", "local")] },
+        { servers: [server("cloud", "My server")], factories: [{ id: "c1" }] },
+      );
+      expect(plan).toEqual({ servers: [], factories: [] });
+    });
   });
 
   test("diff finds changed and removed rows by content", () => {
