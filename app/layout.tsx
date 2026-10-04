@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { ThemeInitializer } from "@/components/ui/ThemeInitializer";
+import { MAINTAINER, REPO_URL, SITE_URL, UPSTREAM } from "@/lib/site";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,7 +24,7 @@ const cinzel = Cinzel({
   weight: ["400", "700"],
 });
 
-const siteUrl = "https://alchemyfactorytools.com";
+const siteUrl = SITE_URL;
 const siteName = "Alchemy Factory Tools";
 const siteDescription =
   "Free production planner and calculator for Alchemy Factory. Plan crafting chains, optimize factory layouts, and calculate resource requirements for the Steam factory-building game.";
@@ -46,8 +47,8 @@ export const metadata: Metadata = {
     "production calculator",
     "crafting calculator",
   ],
-  authors: [{ name: "moldy530", url: "https://github.com/moldy530" }],
-  creator: "moldy530",
+  authors: [MAINTAINER, UPSTREAM],
+  creator: MAINTAINER.name,
   metadataBase: new URL(siteUrl),
   alternates: {
     canonical: "/",
@@ -98,8 +99,8 @@ export default function RootLayout({
     },
     author: {
       "@type": "Person",
-      name: "moldy530",
-      url: "https://github.com/moldy530",
+      name: MAINTAINER.name,
+      url: MAINTAINER.url,
     },
     about: {
       "@type": "VideoGame",
@@ -150,7 +151,7 @@ export default function RootLayout({
             </a>
             <span className="text-[var(--border)]">|</span>
             <a
-              href="https://github.com/moldy530/alchemy-factory-planner"
+              href={REPO_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-[var(--accent-gold)] transition-colors flex items-center gap-1.5"
@@ -162,14 +163,23 @@ export default function RootLayout({
             </a>
             <span className="text-[var(--border)]">|</span>
             <span>
-              Maintained by{" "}
+              Fork by{" "}
               <a
-                href="https://github.com/moldy530"
+                href={MAINTAINER.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-[var(--accent-gold)] transition-colors"
               >
-                @moldy530
+                @{MAINTAINER.name}
+              </a>
+              {" "}of the original by{" "}
+              <a
+                href={UPSTREAM.repo}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-[var(--accent-gold)] transition-colors"
+              >
+                @{UPSTREAM.name}
               </a>
             </span>
           </div>

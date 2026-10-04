@@ -1,8 +1,9 @@
 import { MetadataRoute } from "next";
+import { SITE_URL } from "@/lib/site";
 import { itemsConfig } from "@/lib/codex/entity-configs/items.config";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = "https://alchemyfactorytools.com";
+  const baseUrl = SITE_URL;
 
   // Static pages
   const staticPages: MetadataRoute.Sitemap = [

@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { SITE_HOST } from "@/lib/site";
 
 export const runtime = "edge";
 
@@ -161,7 +162,7 @@ export default async function Image() {
             color: "#666",
           }}
         >
-          alchemyfactorytools.com
+          {SITE_HOST}
         </p>
       </div>
     ),
