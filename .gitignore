@@ -42,3 +42,8 @@ next-env.d.ts
 
 .vercel
 .env*.local
+
+# agent skills installed by the Vercel/Supabase CLI
+.agents/
+.claude/skills/
+skills-lock.json

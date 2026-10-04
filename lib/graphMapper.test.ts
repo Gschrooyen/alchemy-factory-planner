@@ -41,7 +41,8 @@ describe("Graph Mapper", () => {
     const rawNodes = nodes.filter((n: any) => n.data.isRaw);
     const logsNode = rawNodes.find((n: any) => n.data.itemName === "Logs");
     expect(logsNode).toBeDefined();
-    expect(logsNode.data.rate).toBe(10);
+    // 1 Log -> 200 Planks, so 10 Planks/min needs 0.05 Logs/min (same as engine/planner.test.ts)
+    expect(logsNode.data.rate).toBeCloseTo(0.05, 4);
   });
 
   test("should handle circular dependencies with correct net output rates", async () => {
