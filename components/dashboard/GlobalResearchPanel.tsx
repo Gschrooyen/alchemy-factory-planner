@@ -8,6 +8,7 @@ const pct = (value: number) => Math.round(value);
 
 export function GlobalResearchPanel() {
     const { research, setResearch, resetResearch } = useFactoryStore();
+    const serverName = useFactoryStore((s) => s.servers.find((sv) => sv.id === s.activeServerId)?.name);
 
     return (
         <OrnatePanel className="px-6 py-4 rounded-xl shadow-xl group" accentColor="purple">
@@ -29,6 +30,7 @@ export function GlobalResearchPanel() {
                 <h3 className="text-xs font-bold text-[var(--accent-gold)] uppercase tracking-[0.2em] font-[family-name:var(--font-cinzel)]">
                     Skills
                 </h3>
+                {serverName && <span className="text-xs text-[var(--text-muted)]">{serverName}</span>}
                 <div className="divider-ornate flex-1"></div>
             </div>
 

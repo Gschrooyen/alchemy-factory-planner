@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import { ChevronDown, Sparkles, Calculator, Package, Cog, BookOpen, FlaskConical } from "lucide-react";
 import { AlchemyIcon } from "@/components/icons/AlchemyIcon";
+import { AccountMenu } from "@/components/layout/AccountMenu";
 import { FeedbackButton } from "@/components/ui/FeedbackButton";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -170,6 +171,7 @@ export function SiteHeader() {
         <div className="flex items-center gap-3">
           <ThemeToggle />
           <FeedbackButton />
+          <AccountMenu />
         </div>
       </div>
     </header>

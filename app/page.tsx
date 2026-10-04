@@ -39,8 +39,11 @@ const summaryClass =
 
 export default function PlannerPage() {
   const {
+    servers,
+    activeServerId,
     factories,
     activeFactoryId,
+    addServer,
     addFactory,
     updateFactoryConfig,
   } = useFactoryStore();
@@ -60,12 +63,13 @@ export default function PlannerPage() {
 
   const activeFactory = factories.find((f) => f.id === activeFactoryId);
 
-  // Initialize if empty
+  // Every server has at least one factory (fresh visit, new server, or after signing out)
+  const serverHasFactory = factories.some((f) => f.serverId === activeServerId);
   useEffect(() => {
-    if (isLoaded && factories.length === 0) {
-      addFactory();
-    }
-  }, [isLoaded, factories.length, addFactory]);
+    if (!isLoaded) return;
+    if (servers.length === 0) addServer("My server");
+    else if (!serverHasFactory) addFactory();
+  }, [isLoaded, servers.length, serverHasFactory, addServer, addFactory]);
 
   // Derived Stats
   const productionTrees = useMemo(() => activeFactory?.productionTrees || [], [activeFactory?.productionTrees]);

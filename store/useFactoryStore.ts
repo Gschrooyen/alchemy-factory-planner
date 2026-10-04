@@ -31,10 +31,18 @@ export interface FactoryData extends FactoryState {
     viewport: Viewport;
     active: boolean;
     done?: string[]; // production node ids marked as built in-game
+    serverId: string;
+}
+
+/** A game world/save: research is per server, factories belong to one. */
+export interface ServerData {
+    id: string;
+    name: string;
+    research: ResearchState;
 }
 
 // Initial Research State
-const DEFAULT_RESEARCH: ResearchState = {
+export const DEFAULT_RESEARCH: ResearchState = {
     logisticsEfficiency: 0,
     throwingEfficiency: 0,
     factoryEfficiency: 0,
@@ -74,9 +82,21 @@ const DEFAULT_FACTORY_CONFIG: Omit<
 
 interface FactoryStore {
     // State
+    servers: ServerData[];
+    activeServerId: string | null;
     factories: FactoryData[];
     activeFactoryId: string | null;
-    research: ResearchState;
+    research: ResearchState; // the active server's research, mirrored into servers[] on every change
+    syncedUserId: string | null; // account this device last synced with (lib/cloud.ts)
+
+    // Servers
+    addServer: (name?: string) => void;
+    renameServer: (id: string, name: string) => void;
+    removeServer: (id: string) => void;
+    setActiveServer: (id: string) => void;
+    /** Swap in servers/factories from the cloud, keeping the active selection when it still exists. */
+    replaceAll: (servers: ServerData[], factories: FactoryData[]) => void;
+    setSyncedUserId: (id: string | null) => void;
 
     // Actions
     addFactory: () => void;
@@ -116,12 +136,98 @@ interface FactoryStore {
     clearDone: (id: string) => void;
 }
 
+/**
+ * What gets saved (localStorage and cloud): productionTrees has circular refs and is
+ * recalculated from targets + config, and node.data carries copies of it.
+ */
+export function toStoredFactory(f: FactoryData): FactoryData {
+    return {
+        ...f,
+        productionTrees: [],
+        nodes: f.nodes.map((n) => ({
+            ...n,
+            data: n.data ? { ...n.data, inputs: [], byproducts: [] } : n.data,
+        })),
+    };
+}
+
+/** Research update for the active server, kept in sync with its entry in servers[]. */
+function withResearch(state: FactoryStore, research: ResearchState) {
+    return {
+        research,
+        servers: state.servers.map((s) => (s.id === state.activeServerId ? { ...s, research } : s)),
+    };
+}
+
+export function newServer(name: string, research: ResearchState = DEFAULT_RESEARCH): ServerData {
+    return { id: crypto.randomUUID(), name, research };
+}
+
+/** v0 had no servers: put everything in one, carrying over the global research. */
+export function migrateV0(old: { factories?: Omit<FactoryData, "serverId">[]; research?: ResearchState }) {
+    const server = newServer("My server", old.research ?? DEFAULT_RESEARCH);
+    return {
+        servers: [server],
+        activeServerId: server.id,
+        factories: (old.factories ?? []).map((f) => ({ ...f, serverId: server.id })),
+    };
+}
+
 export const useFactoryStore = create<FactoryStore>()(
     persist(
         (set, get) => ({
+            servers: [],
+            activeServerId: null,
             factories: [],
             activeFactoryId: null,
             research: DEFAULT_RESEARCH,
+            syncedUserId: null,
+            setSyncedUserId: (id) => set({ syncedUserId: id }),
+
+            addServer: (name) => {
+                const server = newServer(name || `Server ${get().servers.length + 1}`);
+                set((s) => ({ servers: [...s.servers, server] }));
+                get().setActiveServer(server.id);
+            },
+
+            renameServer: (id, name) =>
+                set((s) => ({ servers: s.servers.map((sv) => (sv.id === id ? { ...sv, name } : sv)) })),
+
+            removeServer: (id) => {
+                if (get().servers.length <= 1) return;
+                const wasActive = get().activeServerId === id;
+                set((s) => ({
+                    servers: s.servers.filter((sv) => sv.id !== id),
+                    factories: s.factories.filter((f) => f.serverId !== id),
+                }));
+                if (wasActive) get().setActiveServer(get().servers[0].id);
+            },
+
+            setActiveServer: (id) => {
+                const server = get().servers.find((s) => s.id === id);
+                if (!server) return;
+                // the page adds a factory when a server has none
+                const first = get().factories.find((f) => f.serverId === id);
+                set({ activeServerId: id, research: server.research, activeFactoryId: first?.id ?? null });
+                get().calculateAndLayout();
+            },
+
+            replaceAll: (servers, factories) => {
+                const { activeServerId, activeFactoryId } = get();
+                const serverId = servers.some((s) => s.id === activeServerId) ? activeServerId : servers[0]?.id ?? null;
+                const server = servers.find((s) => s.id === serverId);
+                const factoryId = factories.some((f) => f.id === activeFactoryId && f.serverId === serverId)
+                    ? activeFactoryId
+                    : factories.find((f) => f.serverId === serverId)?.id ?? null;
+                set({
+                    servers,
+                    factories,
+                    activeServerId: serverId,
+                    activeFactoryId: factoryId,
+                    research: server?.research ?? DEFAULT_RESEARCH,
+                });
+                get().calculateAndLayout();
+            },
             showUtilityEdges: false,
             layoutAlgorithm: "layered",
             setLayoutAlgorithm: (a) => { set({ layoutAlgorithm: a }); const id = get().activeFactoryId; if (id) get().resetFactoryLayout(id); },
@@ -133,9 +239,12 @@ export const useFactoryStore = create<FactoryStore>()(
 
             addFactory: () => {
                 const id = crypto.randomUUID();
+                const serverId = get().activeServerId;
+                if (!serverId) return;
                 const newFactory: FactoryData = {
                     id,
-                    name: `Factory ${get().factories.length + 1}`,
+                    serverId,
+                    name: `Factory ${get().factories.filter((f) => f.serverId === serverId).length + 1}`,
                     targets: [],
                     availableResources: [],
                     config: DEFAULT_FACTORY_CONFIG,
@@ -157,8 +266,11 @@ export const useFactoryStore = create<FactoryStore>()(
             // A shared link: new tab with the shared inputs, skills applied, plan computed
             importFactory: (shared) => {
                 const id = crypto.randomUUID();
+                const serverId = get().activeServerId;
+                if (!serverId) return;
                 const factory: FactoryData = {
                     id,
+                    serverId,
                     name: shared.name || `Factory ${get().factories.length + 1}`,
                     targets: shared.targets,
                     availableResources: shared.availableResources ?? [],
@@ -174,20 +286,21 @@ export const useFactoryStore = create<FactoryStore>()(
                 set((state) => ({
                     factories: [...state.factories, factory],
                     activeFactoryId: id,
-                    research: { ...state.research, ...shared.research },
+                    ...withResearch(state, { ...state.research, ...shared.research }),
                 }));
                 get().calculateAndLayout();
             },
 
             removeFactory: (id) => {
                 set((state) => {
-                    if (state.factories.length <= 1) return state;
+                    const serverId = state.factories.find((f) => f.id === id)?.serverId;
+                    if (state.factories.filter((f) => f.serverId === serverId).length <= 1) return state;
 
                     const newFactories = state.factories.filter((f) => f.id !== id);
                     let newActiveId = state.activeFactoryId;
 
                     if (state.activeFactoryId === id) {
-                        newActiveId = newFactories[0].id;
+                        newActiveId = newFactories.find((f) => f.serverId === serverId)!.id;
                     }
 
                     return { factories: newFactories, activeFactoryId: newActiveId };
@@ -209,22 +322,18 @@ export const useFactoryStore = create<FactoryStore>()(
             },
 
             setResearch: (field, value) => {
-                set((state) => ({
-                    research: { ...state.research, [field]: value },
-                }));
+                set((state) => withResearch(state, { ...state.research, [field]: value }));
                 // Trigger recalc immediately?
                 get().calculateAndLayout();
             },
 
             setResearchBulk: (updates) => {
-                set((state) => ({
-                    research: { ...state.research, ...updates },
-                }));
+                set((state) => withResearch(state, { ...state.research, ...updates }));
                 get().calculateAndLayout();
             },
 
             resetResearch: () => {
-                set({ research: DEFAULT_RESEARCH });
+                set((state) => withResearch(state, DEFAULT_RESEARCH));
                 get().calculateAndLayout();
             },
 
@@ -391,21 +500,19 @@ export const useFactoryStore = create<FactoryStore>()(
         {
             name: "alchemy-factory-store", // unique name for localStorage
             storage: createJSONStorage(() => localStorage),
+            version: 1,
+            migrate: (persisted, version) => {
+                const old = persisted as Parameters<typeof migrateV0>[0];
+                return (version === 0 ? { ...old, ...migrateV0(old) } : old) as unknown as FactoryStore;
+            },
             partialize: (state) => ({
-                // Exclude productionTrees from persistence - it has circular refs
-                // and can be recalculated from targets + config
-                factories: state.factories.map((f) => ({
-                    ...f,
-                    productionTrees: [], // Don't persist - will be recalculated
-                    nodes: f.nodes.map((n) => ({
-                        ...n,
-                        // Strip any circular data from node.data if present
-                        data: n.data ? { ...n.data, inputs: [], byproducts: [] } : n.data,
-                    })),
-                })),
+                servers: state.servers,
+                activeServerId: state.activeServerId,
+                factories: state.factories.map(toStoredFactory),
                 activeFactoryId: state.activeFactoryId,
                 research: state.research,
                 layoutAlgorithm: state.layoutAlgorithm,
+                syncedUserId: state.syncedUserId,
             }),
             onRehydrateStorage: () => (state) => {
                 // Recalculate production trees after loading from localStorage

@@ -4,10 +4,12 @@ import { encodeShare, SHARE_PARAM } from "../../lib/share";
 import type { FactoryState } from "../../engine/types";
 import { cn } from "../../lib/utils";
 import { useFactoryStore } from "../../store/useFactoryStore";
+import { ServerPicker } from "./ServerPicker";
 
 export function FactoryTabs() {
     const {
-        factories,
+        factories: allFactories,
+        activeServerId,
         activeFactoryId,
         setActiveFactory,
         addFactory,
@@ -19,6 +21,7 @@ export function FactoryTabs() {
     const [isRenaming, setIsRenaming] = useState<string | null>(null);
     const [renameValue, setRenameValue] = useState("");
 
+    const factories = allFactories.filter((f) => f.serverId === activeServerId);
     const activeFactory = factories.find((f) => f.id === activeFactoryId);
 
 
@@ -38,6 +41,8 @@ export function FactoryTabs() {
         <div className="flex overflow-x-auto custom-scrollbar items-center gap-1 relative">
             {/* Decorative line under tabs */}
             <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[var(--border)] to-transparent"></div>
+
+            <ServerPicker />
 
             {factories.map((factory) => (
                 <div
