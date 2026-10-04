@@ -131,3 +131,26 @@ Use CSS variables to maintain the alchemy theme:
 
 - Use `OrnatePanel` for themed card containers
 - Use `font-cinzel` class for headers (medieval serif font)
+
+## Versioning & Releases
+
+The app follows [semver](https://semver.org). The version lives in `package.json` and is shown in the footer (`app/layout.tsx`), linked to its GitHub release.
+
+- **patch**: bug fixes
+- **minor**: new features
+- **major**: breaking changes, e.g. saved data (localStorage or the Supabase schema) that old versions can't read
+
+Cut a release only when asked, from a clean `main`:
+
+```bash
+bun pm version minor          # or patch / major: bumps package.json, commits, tags vX.Y.Z
+git push fork main --follow-tags
+gh release create vX.Y.Z --notes "..." --repo Gschrooyen/alchemy-factory-planner
+```
+
+Release notes are written for players: what's new, fixed or changed, not commit-level detail.
+
+### Remotes
+
+- `fork` is this project (`Gschrooyen/alchemy-factory-planner`). Pushing `main` deploys to Vercel at https://alchemyplanner.dsgpartners.be.
+- `origin` is the upstream original by moldy530. Never push to it.
