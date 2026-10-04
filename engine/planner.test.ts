@@ -224,15 +224,14 @@ planners.forEach(({ name, fn: calculateFn }) => {
 
     const seedInput = flaxNode.inputs.find((i) => i.itemName === "Flax Seeds");
     expect(seedInput).toBeDefined();
-    // Seed consumption: 1 seed per cycle
-    // - 6000 Flax/min at 200 per cycle = 30 cycles/min
-    // - Seeds = 30 seeds/min
-    expect(seedInput?.rate).toBeCloseTo(30, 1);
+    // Seeds are planted once per nursery, not used up: 200 nurseries -> 200 seeds, a one-time count
+    expect(seedInput?.planted).toBe(true);
+    expect(seedInput?.rate).toBe(200);
 
     console.log("\n=== Test Summary ===");
     console.log(`✓ Flax: ${flaxNode.deviceCount.toFixed(3)} nurseries`);
     console.log(`✓ Fertilizer consumption: ${fertilizerInput?.rate.toFixed(2)}/min`);
-    console.log(`✓ Seed consumption: ${seedInput?.rate.toFixed(2)}/min`);
+    console.log(`✓ Seeds to plant: ${seedInput?.rate}`);
   });
 
   test("Fertilizer tier changes nursery growth speed (issue #19)", () => {
@@ -880,6 +879,7 @@ describe("World Trees", () => {
     factoryEfficiency: 0, alchemySkill: 0, fuelEfficiency: 0, logisticsEfficiency: 4, fertilizerEfficiency: 14,
     salesAbility: 0, throwingEfficiency: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0,
     selectedFuel: "coal", selfFertilizer: false, selfFuel: false, optimizeFor: "cost" as const,
+    machineCost: 25, // the UI default: fertilizer from outside is free, so machine count decides between the trees
   };
   test("planner prefers the Miniature World Tree for leaves: 40/min per tree at a flat 20k V/s, no cores", () => {
     for (const fert of ["Fertile Catalyst", "Basic Fertilizer"]) {
@@ -900,5 +900,239 @@ describe("World Trees", () => {
     expect(recipeNutrients(tree)).toBe(6_000_000);
     expect(getEffectiveRecipeTime(tree, "Basic Fertilizer", 2.4)).toBeCloseTo(150, 3);
     expect(getEffectiveRecipeTime(tree, "Fertile Catalyst", 2.4, 120, 2)).toBeCloseTo(300, 3); // pre-scaled to cancel 200% speed
+  });
+});
+
+describe("Self-recycled byproduct (Steel Ingot's Iron Ingot)", () => {
+  test("the athanor feeds its own Iron Ingot back: smelter supplies only the net 1:1, nothing left over", () => {
+    const nodes = calculateProductionLP({
+      targets: [{ item: "Steel Ingot", rate: 30 }], availableResources: [],
+      factoryEfficiency: 0, alchemySkill: 0, fuelEfficiency: 0, logisticsEfficiency: 0, fertilizerEfficiency: 0,
+      salesAbility: 0, throwingEfficiency: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0,
+      selectedFuel: "coal", selfFuel: false,
+    } as PlannerConfig);
+    const steel = nodes.find((n) => n.itemName === "Steel Ingot")!;
+    const iron = steel.byproducts.find((b) => b.itemName === "Iron Ingot")!;
+    expect(iron.rate).toBeCloseTo(0, 6); // none spare
+    expect(iron.recycled).toBeCloseTo(90, 3); // 120 in, 90 back (75%)
+    expect(steel.inputRates!["Iron Ingot"]).toBeCloseTo(30, 3); // net draw from the smelter
+  });
+});
+
+describe("Enhanced Grinder", () => {
+  test("swaps grinder recipes to the Enhanced Grinder at twice the speed, same recipe id", () => {
+    const config = {
+      targets: [{ item: "Coke Powder", rate: 60 }], availableResources: [{ item: "Coke", rate: 1000 }],
+      factoryEfficiency: 0, alchemySkill: 0, fuelEfficiency: 0, logisticsEfficiency: 0, fertilizerEfficiency: 0,
+      salesAbility: 0, throwingEfficiency: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0,
+    } as PlannerConfig;
+    const plain = calculateProductionLP(config)[0];
+    const enhanced = calculateProductionLP({ ...config, useEnhancedGrinder: true })[0];
+    expect(plain.deviceId).toBe("grinder");
+    expect(enhanced.deviceId).toBe("enhanced-grinder");
+    expect(enhanced.recipeId).toBe(plain.recipeId);
+    expect(enhanced.deviceCount).toBeCloseTo(plain.deviceCount / 2, 6);
+  });
+});
+
+describe("Recipe splits", () => {
+  const base = {
+    targets: [{ item: "Coke", rate: 100 }], availableResources: [],
+    factoryEfficiency: 0, alchemySkill: 0, fuelEfficiency: 0, logisticsEfficiency: 0, fertilizerEfficiency: 0,
+    salesAbility: 0, throwingEfficiency: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0, selectedFuel: "",
+  } as PlannerConfig;
+  const cokeByRecipe = (config: PlannerConfig) => {
+    const rates = new Map<string, number>();
+    const seen = new Set<ProductionNode>();
+    const walk = (n: ProductionNode) => {
+      if (seen.has(n) || n.isConsumptionReference) return;
+      seen.add(n);
+      if (n.itemName === "Coke" && n.recipeId) rates.set(n.recipeId, n.rate);
+      n.inputs.forEach(walk);
+    };
+    calculateProductionLP(config).forEach(walk);
+    return rates;
+  };
+
+  test("each recipe makes its share of the item", () => {
+    const rates = cokeByRecipe({ ...base, recipeSplits: { coke: { coke: 60, coke_alt: 40 } } });
+    expect(rates.get("coke")).toBeCloseTo(60, 3);
+    expect(rates.get("coke_alt")).toBeCloseTo(40, 3);
+  });
+
+  test("shares are relative, not required to sum to 100", () => {
+    const rates = cokeByRecipe({ ...base, recipeSplits: { coke: { coke: 1, coke_alt: 3 } } });
+    expect(rates.get("coke")).toBeCloseTo(25, 3);
+    expect(rates.get("coke_alt")).toBeCloseTo(75, 3);
+  });
+});
+
+describe("Recipe splits with brews", () => {
+  test("Coke half from its normal recipe, half from a cauldron brew", () => {
+    const key = "brew:cauldron:basicfertilizer,basicfertilizer,brick";
+    const rates = new Map<string, number>();
+    const seen = new Set<ProductionNode>();
+    const walk = (n: ProductionNode) => {
+      if (seen.has(n) || n.isConsumptionReference) return;
+      seen.add(n);
+      if (n.itemName === "Coke" && n.recipeId) rates.set(n.recipeId, n.rate);
+      n.inputs.forEach(walk);
+    };
+    calculateProductionLP({
+      targets: [{ item: "Coke", rate: 100 }], availableResources: [],
+      factoryEfficiency: 0, alchemySkill: 0, fuelEfficiency: 0, logisticsEfficiency: 0, fertilizerEfficiency: 0,
+      salesAbility: 0, throwingEfficiency: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0, selectedFuel: "",
+      recipeSplits: { coke: { coke_alt: 50, [key]: 50 } },
+    } as PlannerConfig).forEach(walk);
+    expect(rates.get("coke_alt")).toBeCloseTo(50, 3);
+    expect(rates.get(key)).toBeCloseTo(50, 3);
+  });
+});
+
+describe("Nursery seeds are a one-time build cost", () => {
+  test("a fractional nursery group still plants whole seeds: 2.5 nurseries -> 3 seeds", () => {
+    // Flax at Basic Fertilizer, no research: 30/min per nursery -> 75/min = 2.5 nurseries
+    for (const fn of [calculateProduction, calculateProductionLP]) {
+      const flax = fn({
+        targets: [{ item: "Flax", rate: 75 }], availableResources: [],
+        fuelEfficiency: 0, alchemySkill: 0, factoryEfficiency: 0, logisticsEfficiency: 0, throwingEfficiency: 0,
+        fertilizerEfficiency: 0, salesAbility: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0,
+        selectedFertilizer: "Basic Fertilizer", selfFertilizer: false,
+      }).find((n) => n.itemName === "Flax")!;
+      expect(flax.deviceCount).toBeCloseTo(2.5, 3);
+      const seeds = flax.inputs.find((i) => i.itemName === "Flax Seeds")!;
+      expect(seeds.planted).toBe(true);
+      expect(seeds.rate).toBe(3);
+    }
+  });
+});
+
+describe("Brew solver in fewest-machines mode", () => {
+  test("offers brews: intermediates aren't free just because they have a sale value", () => {
+    const machines = (optimizeFor: "cost" | "machines", autoBrews: boolean) => {
+      let total = 0;
+      const seen = new Set<string>();
+      const walk = (n: ProductionNode) => {
+        if (n.isConsumptionReference) return n.inputs.forEach(walk);
+        if (n.isRaw || seen.has(n.id!)) return;
+        seen.add(n.id!);
+        total += n.deviceCount;
+        n.inputs.forEach(walk);
+      };
+      calculateProductionLP({
+        targets: [{ item: "Black Powder", rate: 30 }], availableResources: [],
+        fuelEfficiency: 0, alchemySkill: 0, factoryEfficiency: 0, logisticsEfficiency: 4, throwingEfficiency: 0,
+        fertilizerEfficiency: 0, salesAbility: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0,
+        selectedFuel: "coal", selfFuel: false, selectedFertilizer: "Basic Fertilizer", selfFertilizer: false,
+        optimizeFor, autoBrews,
+      } as PlannerConfig).forEach(walk);
+      return total;
+    };
+    // With the solver on, fewest-machines must do at least as well as without it (it used to offer 0 brews)
+    expect(machines("machines", true)).toBeLessThan(machines("machines", false) / 2);
+  });
+});
+
+describe("Target made by several recipes", () => {
+  test("each maker reports its share of the target, not the whole of it", () => {
+    const roots = calculateProductionLP({
+      targets: [{ item: "Coke", rate: 100 }], availableResources: [],
+      factoryEfficiency: 0, alchemySkill: 0, fuelEfficiency: 0, logisticsEfficiency: 0, fertilizerEfficiency: 0,
+      salesAbility: 0, throwingEfficiency: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0, selectedFuel: "",
+      recipeSplits: { coke: { coke: 60, coke_alt: 40 } },
+    } as PlannerConfig).filter((r) => !r.isOrphanRoot);
+    expect(roots).toHaveLength(2);
+    expect(roots.reduce((sum, r) => sum + r.netOutputRate!, 0)).toBeCloseTo(100, 3);
+    expect(roots.find((r) => r.recipeId === "coke")!.netOutputRate).toBeCloseTo(60, 3);
+  });
+});
+
+describe("Whole machines: fill upstream", () => {
+  const base = {
+    availableResources: [], fuelEfficiency: 0, alchemySkill: 0, factoryEfficiency: 0, logisticsEfficiency: 4,
+    throwingEfficiency: 0, fertilizerEfficiency: 0, salesAbility: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0,
+    selectedFuel: "coal", selfFuel: false, selectedFertilizer: "Basic Fertilizer", selfFertilizer: false, wholeMachines: true,
+  };
+  const flatten = (roots: ProductionNode[]) => {
+    const out: ProductionNode[] = [];
+    const seen = new Set<ProductionNode>();
+    const walk = (n: ProductionNode) => {
+      if (n.isConsumptionReference) return n.inputs.forEach(walk);
+      if (n.isRaw || seen.has(n)) return;
+      seen.add(n);
+      out.push(n);
+      n.inputs.forEach(walk);
+    };
+    roots.forEach(walk);
+    return out;
+  };
+
+  test("the first machine of a chain runs full: 40 Flax/min needs 2 nurseries, so make their 60", () => {
+    const roots = calculateProductionLP({ ...base, targets: [{ item: "Flax", rate: 40 }] } as PlannerConfig);
+    const flax = roots.find((r) => r.itemName === "Flax")!;
+    expect(flax.deviceCount).toBe(2);
+    expect(flax.netOutputRate).toBeCloseTo(60, 3); // 30/min per nursery at Basic Fertilizer
+  });
+
+  test("every step gets a whole machine count and nothing upstream is left over", () => {
+    const roots = calculateProductionLP({ ...base, targets: [{ item: "Linseed Oil", rate: 50 }] } as PlannerConfig);
+    const nodes = flatten(roots);
+    for (const n of nodes) expect(Number.isInteger(n.deviceCount)).toBe(true);
+    for (const n of nodes) expect(n.surplus ?? 0).toBeLessThan(0.01);
+    const out = roots.filter((r) => !r.isOrphanRoot).reduce((sum, r) => sum + (r.netOutputRate ?? r.rate), 0);
+    expect(out).toBeGreaterThanOrEqual(50 - 1e-6); // the target is a minimum
+  });
+});
+
+describe("Fuel and fertilizer from outside the factory are free", () => {
+  test("not produced here: only a tie-break price in the optimizer, full price when bought as a material", async () => {
+    const { buildLPModel } = await import("./lp-planner/model-builder");
+    const { buildEfficiencyContext } = await import("./lp-planner/efficiency");
+    const config = {
+      targets: [{ item: "Quicklime", rate: 10 }], availableResources: [],
+      fuelEfficiency: 0, alchemySkill: 0, factoryEfficiency: 0, logisticsEfficiency: 0, throwingEfficiency: 0,
+      fertilizerEfficiency: 0, salesAbility: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0,
+      selectedFuel: "Coal", selfFuel: false,
+    } as PlannerConfig;
+    const external = buildLPModel(config, buildEfficiencyContext(config)).variables["raw_coal"];
+    const produced = buildLPModel({ ...config, selfFuel: true, selectedFuel: "Logs" }, buildEfficiencyContext({ ...config, selectedFuel: "Logs" }));
+    expect(external.cost).toBeLessThan(1e-6); // free: a flat tie-break, not a share of its price
+    expect(produced.variables["raw_limestone"].cost).toBeGreaterThan(1); // an ordinary bought material keeps its price
+  });
+});
+
+describe("Supplied resources are used before anything is made or bought", () => {
+  const config = {
+    targets: [{ item: "Sapphire", rate: 1 }], availableResources: [{ item: "Ruby", rate: 2.4 }],
+    fuelEfficiency: 12, alchemySkill: 13, factoryEfficiency: 12, logisticsEfficiency: 12, throwingEfficiency: 0,
+    fertilizerEfficiency: 30, salesAbility: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0,
+    selectedFuel: "Panacea Potion", selfFuel: false, selectedFertilizer: "Panacea Potion", selfFertilizer: false,
+    optimizeFor: "machines" as const, autoBrews: true,
+  } as PlannerConfig;
+  const inputs = (roots: ProductionNode[]) => {
+    const raw = new Map<string, { rate: number; supplied: boolean }>();
+    const seen = new Set<ProductionNode>();
+    const walk = (n: ProductionNode) => {
+      if (n.isConsumptionReference) return n.inputs.forEach(walk);
+      if (n.isRaw) { const e = raw.get(n.itemName) ?? { rate: 0, supplied: !!n.suppliedRate }; e.rate += n.rate; raw.set(n.itemName, e); return; }
+      if (seen.has(n)) return;
+      seen.add(n);
+      n.inputs.forEach(walk);
+    };
+    roots.forEach(walk);
+    return raw;
+  };
+
+  test("fewest machines uses the supplied Ruby (an expensive item) instead of making it", () => {
+    const ruby = inputs(calculateProductionLP(config)).get("Ruby");
+    expect(ruby?.supplied).toBe(true);
+    expect(ruby!.rate).toBeCloseTo(2, 3); // Ruby + Ruby -> Sapphire
+  });
+
+  test("whole machines never starts buying an item that was only supplied", () => {
+    const roots = calculateProductionLP({ ...config, wholeMachines: true });
+    const ruby = inputs(roots).get("Ruby")!;
+    expect(ruby.supplied).toBe(true);
+    expect(ruby.rate).toBeLessThanOrEqual(2.4 + 1e-6);
   });
 });

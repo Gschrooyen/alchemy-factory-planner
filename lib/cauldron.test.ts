@@ -53,7 +53,13 @@ describe("Cauldron", () => {
   test("liquids are never ingredients (no pipe port on either pot)", () => {
     expect(inputs.find((i) => i.id === "aquavitae")).toBeUndefined();
     expect(inputs.find((i) => i.id === "brandy")).toBeUndefined();
-    expect(inputs.length).toBe(144); // 170 with a cauldron cost, minus 12 liquids, minus 14 hidden items
+    expect(inputs.length).toBe(139); // 170 with a cauldron cost, minus 12 liquids, 14 hidden items, 5 beverages
+  });
+
+  test("Brew Barrel beverages are never ingredients", () => {
+    for (const id of ["alchemistsigh", "lavenderdream", "strangetide", "whisperingfields", "worldtreevintage"]) {
+      expect(inputs.find((i) => i.id === id)).toBeUndefined();
+    }
   });
 
   test("items hidden in game are not ingredients", () => {

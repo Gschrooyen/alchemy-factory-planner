@@ -51,7 +51,7 @@ export function ParadoxSwapButton({ node }: { node: ProductionNode }) {
   );
 }
 
-function ParadoxPicker({ itemId, itemName, current, onChoose, onClose }: {
+export function ParadoxPicker({ itemId, itemName, current, onChoose, onClose }: {
   itemId: string; itemName: string; current?: string; onChoose: (id: string | null) => void; onClose: () => void;
 }) {
   const [search, setSearch] = useState("");

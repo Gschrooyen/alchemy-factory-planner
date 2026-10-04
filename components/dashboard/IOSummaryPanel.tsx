@@ -1,5 +1,6 @@
 import { LayoutList } from "lucide-react";
 import { OrnatePanel } from "../ui/OrnatePanel";
+import { toCoins } from "../../lib/coins";
 
 interface IOSummaryPanelProps {
     stats: {
@@ -7,6 +8,9 @@ interface IOSummaryPanelProps {
         totalPower: number;
     };
     ioSummary: {
+        cost: number; // copper per minute
+        seedCost: number; // copper, once
+        seeds: { name: string; count: number }[];
         inputs: { name: string; rate: number }[];
         outputs: { name: string; rate: number }[];
     };
@@ -41,6 +45,25 @@ export function IOSummaryPanel({ stats, ioSummary }: IOSummaryPanelProps) {
                     </div>
                 </div>
             </div>
+
+            <div className="flex items-center justify-between gap-2 text-xs bg-[var(--background-deep)]/60 px-3 py-2 rounded-lg border border-[var(--border-subtle)]" title="Bought raw inputs at their portal price. Available resources and fuel/fertilizer you don't produce here count as free (they come from outside this factory); nursery seeds are planted once and not counted.">
+                <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wide">Cost</span>
+                <CoinAmount copper={ioSummary.cost} suffix="/min" />
+            </div>
+
+            {ioSummary.seeds.length > 0 && (
+                <div className="flex flex-col gap-1 text-xs bg-[var(--background-deep)]/60 px-3 py-2 rounded-lg border border-[var(--border-subtle)]" title="Nursery seeds are planted once per nursery and not used up: a one-time build cost">
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wide">Plant once</span>
+                        <CoinAmount copper={ioSummary.seedCost} suffix="once" />
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 text-[var(--text-secondary)]">
+                        {ioSummary.seeds.map((s) => (
+                            <span key={s.name}>{s.name} <span className="font-mono text-[var(--accent-gold)]">×{s.count}</span></span>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar grid grid-cols-2 gap-4 content-start">
                 {/* Inputs */}
@@ -85,5 +108,29 @@ export function IOSummaryPanel({ stats, ioSummary }: IOSummaryPanelProps) {
                 </div>
             </div>
         </OrnatePanel>
+    );
+}
+
+/** "1 gold 3 silver 14 copper /min", each coin in its own colour. */
+function CoinAmount({ copper, suffix }: { copper: number; suffix: string }) {
+    const c = toCoins(copper);
+    const parts = [
+        { n: c.gold, label: "gold", cls: "text-[var(--accent-gold-bright)]" },
+        { n: c.silver, label: "silver", cls: "text-slate-300" },
+        { n: c.copper, label: "copper", cls: "text-orange-400" },
+    ].filter((p) => p.n > 0);
+    return (
+        <span className="font-mono font-bold flex items-baseline gap-1.5">
+            {parts.length === 0 ? (
+                <span className="text-orange-400">{copper > 0 ? "<1" : "0"} copper</span>
+            ) : (
+                parts.map((p) => (
+                    <span key={p.label} className={p.cls}>
+                        {p.n.toLocaleString()} {p.label}
+                    </span>
+                ))
+            )}
+            <span className="text-[var(--text-muted)] font-normal">{suffix}</span>
+        </span>
     );
 }

@@ -17,6 +17,7 @@ import { ProductionNode, Item } from "../engine/types";
 import { useFactoryStore } from "../store/useFactoryStore";
 import itemsData from "../data/items.json";
 import { SetupgradesHandler } from "../components/SetupgradesHandler";
+import { getItem, normalizeItemId } from "../engine/item-utils";
 
 // Types
 const items = itemsData as unknown as Item[];
@@ -100,6 +101,14 @@ export default function PlannerPage() {
     const inputs = new Map<string, number>();
     const outputs = new Map<string, number>();
     const visited = new Set<string>();
+    let cost = 0; // copper per minute for bought raw inputs
+    // Fuel/fertilizer not produced here comes from outside this factory: free, like available resources
+    const cfg = activeFactory?.config;
+    const external = new Set<string>();
+    if (cfg?.selectedFuel && !(cfg.selfFuel ?? true)) external.add(normalizeItemId(cfg.selectedFuel));
+    if (cfg?.selectedFertilizer && !(cfg.selfFertilizer ?? true)) external.add(normalizeItemId(cfg.selectedFertilizer));
+    const seeds = new Map<string, number>(); // planted once per nursery: a build cost, not per minute
+    let seedCost = 0;
 
     function traverse(node: ProductionNode, isRoot = false) {
       const key = node.id || node.itemName;
@@ -110,6 +119,16 @@ export default function PlannerPage() {
       if (node.isConsumptionReference) {
         node.inputs.forEach((n) => traverse(n));
         return;
+      }
+
+      // Raw inputs: each consumer holds its own copy carrying its own rate, so count every copy
+      // (deduping by id kept only the first consumer's share). Supplied resources are free; seeds are planted once.
+      if (node.planted) {
+        seeds.set(node.itemName, (seeds.get(node.itemName) || 0) + node.rate);
+        seedCost += node.rate * (getItem(node.itemName)?.cost ?? 0);
+      } else if (node.inputs.length === 0 && node.deviceCount === 0) {
+        inputs.set(node.itemName, (inputs.get(node.itemName) || 0) + node.rate);
+        if (!node.suppliedRate && !external.has(normalizeItemId(node.itemName))) cost += node.rate * (getItem(node.itemName)?.cost ?? 0);
       }
 
       // Check if already visited (skip for production nodes we've seen)
@@ -130,23 +149,26 @@ export default function PlannerPage() {
       if (!isRoot && node.surplus) {
         outputs.set(node.itemName, (outputs.get(node.itemName) || 0) + node.surplus);
       }
-      if (node.inputs.length === 0 && node.deviceCount === 0) {
-        inputs.set(node.itemName, (inputs.get(node.itemName) || 0) + node.rate);
-      }
       node.inputs.forEach((n) => traverse(n));
     }
 
     productionTrees.forEach((root) => traverse(root, true));
 
     return {
+      cost,
+      seedCost,
+      seeds: Array.from(seeds.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
       inputs: Array.from(inputs.entries())
         .map(([name, rate]) => ({ name, rate }))
         .sort((a, b) => a.name.localeCompare(b.name)),
       outputs: Array.from(outputs.entries())
         .map(([name, rate]) => ({ name, rate }))
+        .filter((o) => o.rate > 0.005) // fully used byproducts (e.g. steel's recycled Iron Ingot) aren't outputs
         .sort((a, b) => a.name.localeCompare(b.name)),
     };
-  }, [productionTrees]);
+  }, [productionTrees, activeFactory?.config]);
 
   if (!isLoaded || !activeFactory)
     return <div className="p-10 text-[var(--text-muted)]">Loading Planner...</div>;
@@ -242,6 +264,19 @@ export default function PlannerPage() {
                           title="Let the planner choose again"
                         >
                           Recipe {itemName(id)} ← {recipeId} ✕
+                        </button>
+                      ))}
+                      {Object.entries(activeFactory.config.recipeSplits ?? {}).map(([id, shares]) => (
+                        <button
+                          key={"s" + id}
+                          onClick={() => {
+                            const { [id]: _, ...rest } = activeFactory.config.recipeSplits ?? {};
+                            updateFactoryConfig(activeFactory.id, { recipeSplits: rest });
+                          }}
+                          className="px-2 py-1 text-xs rounded border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--error)] hover:text-[var(--error)]"
+                          title="Let the planner choose again"
+                        >
+                          Split {itemName(id)} ← {Object.entries(shares).map(([r, s]) => `${r} ${s}`).join(" / ")} ✕
                         </button>
                       ))}
                       {Object.entries(activeFactory.config.paradoxOverrides ?? {}).map(([id, input]) => (

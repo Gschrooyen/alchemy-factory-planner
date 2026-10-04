@@ -19,6 +19,7 @@ const headerHeight = (data: ProductionNode) => {
     if (data.deviceCount > 0) h += 40;
     if (data.heatConsumption > 0) h += 30;
     if (data.surplus && data.surplus > 0.01) h += 32;
+    h += (data.byproducts ?? []).filter((bp) => bp.recycled).length * 22;
     return h;
 };
 const inputsHeight = (data: ProductionNode) => {

@@ -131,8 +131,8 @@ describe("Graph Mapper", () => {
       expect(edge.source).toBeDefined();
       expect(edge.target).toBeDefined();
       expect(edge.label).toBeDefined();
-      // Label should be in format "X.X/m"
-      expect(edge.label).toMatch(/[\d.]+\/m/);
+      // Label: "X.X/m" for flows, "plant ×N" for nursery seeds (a one-time count)
+      expect(edge.label).toMatch(/[\d.]+\/m|^plant ×\d+$/);
     });
 
     // Should have edge to target node (edges go from child to parent)
@@ -235,5 +235,34 @@ describe("Graph Mapper", () => {
     expect(quicklimeNode.data.deviceId).toBe("crucible");
     expect(quicklimeNode.data.parentFurnaceId).toBeDefined();
     expect(quicklimeNode.data.parentFurnaceCount).toBeGreaterThan(0);
+  });
+});
+
+describe("Graph Mapper - edge integrity", () => {
+  test("every edge endpoint is a node, even when a byproduct is fully recycled (Steel's Iron Ingot)", async () => {
+    const config = {
+      targets: [{ item: "Steel Ingot", rate: 30 }, { item: "Iron Nails", rate: 30 }], availableResources: [],
+      fuelEfficiency: 0, alchemySkill: 0, factoryEfficiency: 0, logisticsEfficiency: 0, throwingEfficiency: 0,
+      fertilizerEfficiency: 0, salesAbility: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0,
+      selectedFuel: "coal", selfFuel: false,
+    } as PlannerConfig;
+    const { nodes, edges } = await generateGraph(calculateProductionLP(config));
+    const ids = new Set(nodes.map((n) => n.id));
+    const dangling = edges.filter((e) => !ids.has(e.source) || !ids.has(e.target)).map((e) => e.id);
+    expect(dangling).toEqual([]);
+  });
+});
+
+describe("Graph Mapper - split target", () => {
+  test("two recipes making the target feed one target node carrying the full rate", async () => {
+    const { nodes } = await generateGraph(calculateProductionLP({
+      targets: [{ item: "Coke", rate: 100 }], availableResources: [],
+      fuelEfficiency: 0, alchemySkill: 0, factoryEfficiency: 0, logisticsEfficiency: 0, throwingEfficiency: 0,
+      fertilizerEfficiency: 0, salesAbility: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0, selectedFuel: "",
+      recipeSplits: { coke: { coke: 60, coke_alt: 40 } },
+    } as PlannerConfig));
+    const targets = nodes.filter((n) => (n.data as { isTarget?: boolean }).isTarget);
+    expect(targets).toHaveLength(1);
+    expect((targets[0].data as { rate: number }).rate).toBeCloseTo(100, 3);
   });
 });

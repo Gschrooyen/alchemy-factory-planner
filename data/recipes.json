@@ -55,7 +55,7 @@
         "count": 150
       }
     ],
-    "time": 900,
+    "time": 720,
     "crafted_in": "nursery",
     "category": "herbs"
   },
@@ -1051,7 +1051,7 @@
       {
         "id": "rottenlog",
         "name": "Rotten Log",
-        "count": 1
+        "count": 5
       }
     ],
     "outputs": [
@@ -1146,7 +1146,7 @@
       {
         "id": "pyrite",
         "name": "Pyrite Ore",
-        "count": 1
+        "count": 4
       }
     ],
     "outputs": [
@@ -2175,7 +2175,7 @@
         "count": 1
       }
     ],
-    "time": 5.1,
+    "time": 5,
     "crafted_in": "paradox-crucible"
   },
   {
@@ -2409,8 +2409,8 @@
         "percentage": 50
       },
       {
-        "id": "volcanicash",
-        "name": "Volcanic Ash",
+        "id": "marble",
+        "name": "Marble",
         "count": 1,
         "percentage": 50
       }
@@ -2562,19 +2562,19 @@
         "id": "lapislazuli",
         "name": "Lapis Lazuli",
         "count": 1,
-        "percentage": 33.3
+        "percentage": 33.333333333333336
       },
       {
         "id": "crystal1",
         "name": "Shattered Crystal",
         "count": 1,
-        "percentage": 33.3
+        "percentage": 33.333333333333336
       },
       {
         "id": "shard1",
         "name": "Crude Shard",
         "count": 1,
-        "percentage": 33.3
+        "percentage": 33.333333333333336
       }
     ],
     "time": 12,
@@ -3151,7 +3151,7 @@
       {
         "id": "rocksalt",
         "name": "Rock Salt",
-        "count": 1
+        "count": 2
       }
     ],
     "outputs": [

@@ -119,12 +119,13 @@ export function FactorySettingsPanel({
         machineCost: activeFactory.config.machineCost ?? 25,
         useThermalExtractor: activeFactory.config.useThermalExtractor ?? false,
         thermalExtractorFloors: activeFactory.config.thermalExtractorFloors ?? 0,
+        useEnhancedGrinder: activeFactory.config.useEnhancedGrinder ?? false,
     };
 
     const sortedFertilizers = [...fertilizers].sort((a, b) => (a.nutrient_value || 0) - (b.nutrient_value || 0));
     const sortedFuels = [...fuels].sort((a, b) => (a.heat_value || 0) - (b.heat_value || 0));
 
-    const updateConfig = (field: "selectedFertilizer" | "selectedFuel" | "selfFuel" | "selfFertilizer" | "burnByproducts" | "wholeMachines" | "autoBrews" | "machineCost" | "thermalExtractorFloors" | "useThermalExtractor" | "optimizeFor", value: string | boolean | number) => {
+    const updateConfig = (field: "selectedFertilizer" | "selectedFuel" | "selfFuel" | "selfFertilizer" | "burnByproducts" | "wholeMachines" | "autoBrews" | "machineCost" | "thermalExtractorFloors" | "useThermalExtractor" | "useEnhancedGrinder" | "optimizeFor", value: string | boolean | number) => {
         updateFactoryConfig(activeFactory.id, { [field]: value });
     };
 
@@ -185,7 +186,7 @@ export function FactorySettingsPanel({
                                 onChange={(e) => updateConfig("selfFertilizer", e.target.checked)}
                                 className="accent-[var(--accent-gold)] cursor-pointer"
                             />
-                            <span>Produce fertilizer internally</span>
+                            <span title="Off: fertilizer comes from outside this factory and counts as free">Produce fertilizer internally</span>
                         </label>
                     )}
                 </div>
@@ -210,7 +211,7 @@ export function FactorySettingsPanel({
                                 onChange={(e) => updateConfig("selfFuel", e.target.checked)}
                                 className="accent-[var(--accent-gold)] cursor-pointer"
                             />
-                            <span>Produce fuel internally</span>
+                            <span title="Off: fuel comes from outside this factory and counts as free">Produce fuel internally</span>
                         </label>
                     )}
                     {config.selectedFuel && activeFactory.plannerMode === "lp" && (
@@ -225,14 +226,17 @@ export function FactorySettingsPanel({
                         </label>
                     )}
                     {activeFactory.plannerMode === "lp" && (
-                        <label className="flex items-center gap-2 mt-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">
+                        <label
+                            className="flex items-center gap-2 mt-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors"
+                            title="Whole machine counts. The first machines of each chain (nurseries, crushers…) are rounded up and run full; the plan adds downstream machines to use everything they make. Your target becomes a minimum and the output is scaled up to fill those machines."
+                        >
                             <input
                                 type="checkbox"
                                 checked={config.wholeMachines}
                                 onChange={(e) => updateConfig("wholeMachines", e.target.checked)}
                                 className="accent-[var(--accent-gold)] cursor-pointer"
                             />
-                            <span>Whole machines</span>
+                            <span>Whole machines (fill upstream)</span>
                         </label>
                     )}
                     {activeFactory.plannerMode === "lp" && (
@@ -274,7 +278,7 @@ export function FactorySettingsPanel({
                                     onChange={(e) => updateConfig("machineCost", Math.max(0, Number(e.target.value) || 0))}
                                     className="w-20 bg-[var(--background-deep)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs text-[var(--text-secondary)] hover:border-[var(--border)]"
                                 />
-                                <span className="text-[10px] text-[var(--text-muted)]">gold/min per machine</span>
+                                <span className="text-[10px] text-[var(--text-muted)]">copper/min per machine</span>
                             </div>
                         )}
                     </div>
@@ -282,7 +286,7 @@ export function FactorySettingsPanel({
 
                 <div>
                     <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase mb-1.5 flex items-center tracking-wide">
-                        Extraction
+                        Machines
                         <InfoTooltip text="Thermal Extractors run the same recipes as Extractors, but burn heat and gain +12.5% output per storey built above ground, capped at +200% (16 storeys)." />
                     </label>
                     <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">
@@ -309,6 +313,17 @@ export function FactorySettingsPanel({
                                 floors up &rarr; +{Math.round(Math.min(2, config.thermalExtractorFloors * 0.125) * 100)}% output
                             </span>
                         </div>
+                    )}
+                    {activeFactory.plannerMode === "lp" && (
+                        <label className="flex items-center gap-2 mt-2 text-xs text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors" title="Enhanced Grinders run the same recipes as Grinders at twice the speed, so half as many are needed.">
+                            <input
+                                type="checkbox"
+                                checked={config.useEnhancedGrinder}
+                                onChange={(e) => updateConfig("useEnhancedGrinder", e.target.checked)}
+                                className="accent-[var(--accent-gold)] cursor-pointer"
+                            />
+                            <span>Use Enhanced Grinders (2&times; speed)</span>
+                        </label>
                     )}
                 </div>
 

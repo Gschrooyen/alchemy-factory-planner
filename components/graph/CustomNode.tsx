@@ -93,10 +93,16 @@ export function CustomNode({ data }: { data: ProductionNode & { displayRate?: nu
                                     : "text-[var(--accent-gold)]",
                         )}
                     >
-                        {rateToShow.toLocaleString(undefined, {
-                            maximumFractionDigits: 1,
-                        })}
-                        /m
+                        {nodeData.planted ? (
+                            <span title="Planted once per nursery, not used up">plant ×{rateToShow.toLocaleString()}</span>
+                        ) : (
+                            <>
+                                {rateToShow.toLocaleString(undefined, {
+                                    maximumFractionDigits: 1,
+                                })}
+                                /m
+                            </>
+                        )}
                     </div>
                     {isSaturated && !isTarget && (
                         <div className="text-[8px] text-[var(--error)] flex items-center justify-end gap-0.5 mt-0.5">
@@ -154,6 +160,12 @@ export function CustomNode({ data }: { data: ProductionNode & { displayRate?: nu
                         +{nodeData.surplus.toFixed(1)}/m surplus
                     </div>
                 ) : null}
+
+                {nodeData.byproducts.filter((bp) => bp.recycled).map((bp) => (
+                    <div key={bp.itemName} className="text-xs text-[var(--accent-purple-bright)]" title="Loop this output back into the same machines' input">
+                        ↻ {bp.recycled!.toLocaleString(undefined, { maximumFractionDigits: 1 })}/m {bp.itemName} fed back in
+                    </div>
+                ))}
 
                 {nodeData.heatConsumption > 0 && (
                     <div className="flex items-center gap-2 text-xs text-[var(--warning)]">

@@ -45,6 +45,7 @@ export async function generateGraph(
     const traversedConsumptionKeys = new Set<string>();
     const edgeItems = new Map<string, string>(); // edgeKey -> item flowing along it
     const edgeKinds = new Map<string, "fuel" | "fertilizer" | undefined>(); // edgeKey -> heat / fertilizer / product
+    const plantedEdges = new Set<string>(); // seed edges: a one-time count, not a flow
 
     function traverse(node: ProductionNode, parentName?: string, parent?: ProductionNode) {
         // Use explicit ID if available to prevent merging of Source vs Production nodes
@@ -99,6 +100,7 @@ export async function generateGraph(
             edgeRates.set(edgeKey, currentRate + (parent?.inputRates?.[node.itemName] ?? node.rate));
             edgeItems.set(edgeKey, node.itemName);
             edgeKinds.set(edgeKey, node.inputKind);
+            if (node.planted) plantedEdges.add(edgeKey);
         }
 
         // Check if we've already processed this exact object
@@ -121,6 +123,7 @@ export async function generateGraph(
                 if (match) {
                     match.rate += bp.rate;
                     match.remaining = (match.remaining ?? match.rate) + (bp.remaining ?? bp.rate);
+                    if (bp.recycled) match.recycled = (match.recycled ?? 0) + bp.recycled;
                 } else existing.byproducts.push({ ...bp });
             });
             // Recalculate saturation based on total rate
@@ -234,10 +237,12 @@ export async function generateGraph(
             style: { stroke: color, strokeWidth: 2, ...(isFuel && { strokeDasharray: "2 4" }) },
 
             // --- Label Logic ---
-            label: `${rate.toLocaleString(undefined, {
-                minimumFractionDigits: 1,
-                maximumFractionDigits: 2,
-            })}/m`,
+            label: plantedEdges.has(key)
+                ? `plant ×${rate.toLocaleString()}`
+                : `${rate.toLocaleString(undefined, {
+                      minimumFractionDigits: 1,
+                      maximumFractionDigits: 2,
+                  })}/m`,
             labelStyle: { fill: isFuel ? "#f87171" : "#fbbf24", fontWeight: 700, fontSize: 11 },
             labelBgStyle: { fill: "#1c1917", fillOpacity: 0.8 },
             labelBgPadding: [4, 2],
@@ -248,14 +253,17 @@ export async function generateGraph(
     // ----------------------------------------------------
     // Output / Target Nodes
     // ----------------------------------------------------
-    rootNodes.forEach((root, idx) => {
+    rootNodes.forEach((root) => {
         if (root.isOrphanRoot) return; // no target node: it's surplus, shown on the node itself
-        const targetId = `target-${root.itemName}-${idx}`;
+        // One target node per item: several recipes making it (a split) all feed the same target
+        const targetId = `target-${root.itemName}`;
         // Use netOutputRate if available (for LP planner with loops), otherwise use rate
         const outputRate = root.netOutputRate ?? root.rate;
 
+        const existingTarget = rfNodes.find((n) => n.id === targetId);
+        if (existingTarget) (existingTarget.data as { rate: number }).rate += outputRate;
         // Create Target Node
-        rfNodes.push({
+        else rfNodes.push({
             id: targetId,
             type: "custom",
             data: {
@@ -296,10 +304,12 @@ export async function generateGraph(
     // ----------------------------------------------------
     // Byproduct Output Nodes (secondary recipe outputs, e.g. Plank from sawing Rotten Log)
     // ----------------------------------------------------
+    // A tiny byproduct is still drawn if something consumes it: edges must never point at a missing node
+    const edgeSources = new Set(rfEdges.map((e) => e.source));
     mergedNodes.forEach((node, key) => {
         node.byproducts.forEach((bp) => {
-            if (bp.rate < 0.01) return;
             const bpId = `${key}-byproduct-${bp.itemName}`;
+            if (bp.rate < 0.01 && !edgeSources.has(bpId)) return;
             rfNodes.push({
                 id: bpId,
                 type: "custom",

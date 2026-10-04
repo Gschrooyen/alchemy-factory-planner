@@ -89,11 +89,12 @@ export interface ProductionNode {
   parentFurnaceId?: string; // Parent furnace device ID (e.g., "stone-stove")
   parentFurnaceCount?: number; // Number of parent furnaces needed
   inputs: ProductionNode[];
-  byproducts: { itemName: string; rate: number; remaining?: number }[]; // remaining = rate minus internal use
+  byproducts: { itemName: string; rate: number; remaining?: number; recycled?: number }[]; // remaining = rate minus internal use; recycled = fed straight back into the same machine (not in rate)
   isBeltSaturated?: boolean;
   beltLimit?: number;
   isTarget?: boolean; // For visualization nodes
   suppliedRate?: number;
+  planted?: boolean; // Nursery seeds: planted once per nursery, so `rate` is a count (seeds to build with), not per minute
   surplus?: number;
   isOrphanRoot?: boolean; // Production not feeding any target (e.g. a machine run only to burn a byproduct) // Produced beyond what the plan consumes/targets (LP only)
 }
@@ -121,14 +122,16 @@ export interface PlannerConfig {
   cauldronOverrides?: Record<string, string[]>; // itemId -> the 2 or 3 ingredient ids to brew it from instead of its normal recipes (LP only)
   paradoxOverrides?: Record<string, string>; // itemId (mors/vitae) -> input item id to feed the Paradox Crucible instead of its normal recipes (LP only)
   recipeOverrides?: Record<string, string>; // itemId -> the one recipe id allowed to make it; other recipes' output of it doesn't count (LP only)
+  recipeSplits?: Record<string, Record<string, number>>; // itemId -> recipeId -> % of the item made by that recipe (LP only)
   optimizeFor?: "cost" | "machines"; // LP objective: cheapest raw materials (default) or fewest machines
-  machineCost?: number; // Cost mode only: gold per minute charged per machine, so cheap-but-slow chains are not free (default 0 in the engine, 25 in the UI)
+  machineCost?: number; // Cost mode only: copper per minute charged per machine (item prices are in copper), so cheap-but-slow chains are not free (default 0 in the engine, 25 in the UI)
   useThermalExtractor?: boolean; // Run extraction recipes in the Thermal Extractor (costs heat, gains the height bonus)
-  thermalExtractorFloors?: number; // Storeys the Thermal Extractor is built above ground: +12.5% yield each, capped at +200%
+  thermalExtractorFloors?: number;
+  useEnhancedGrinder?: boolean; // Run grinder recipes in the Enhanced Grinder: same recipes, twice the speed (LP only) // Storeys the Thermal Extractor is built above ground: +12.5% yield each, capped at +200%
   burnByproducts?: boolean; // If true, any produced fuel-grade item may be burned for heat before buying selectedFuel (LP only)
   autoBrews?: boolean; // Brew solver: offer the LP cauldron/advanced cauldron/paradox brews that beat an item's normal recipes (LP only)
-  machineOverrides?: Record<string, number>;
-  wholeMachines?: boolean; // "Closest exact solve": integer machine counts, minimal overshoot of targets (LP only) // recipeId -> minimum machine count the user has built (LP only)
+  machineOverrides?: Record<string, number>; // recipeId -> minimum machine count the user has built (LP only)
+  wholeMachines?: boolean; // Integer machine counts; chain-start machines rounded up and filled, targets scaled up to match (LP only)
 }
 
 export interface ResearchState {

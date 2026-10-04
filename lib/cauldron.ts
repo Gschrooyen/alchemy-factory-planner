@@ -36,11 +36,14 @@ export interface CauldronRecipe {
   heat: number; // heat draw
 }
 
+const isBeverage = (item: Item) => ([] as string[]).concat(item.category).includes("beverage");
+
 export function toCauldronItem(item: Item): CauldronItem | null {
   const cc = item.cauldron_cost ?? 0;
   // Both pots have belt inputs only (no pipe port), so liquids can never be ingredients; hidden
-  // items are in the table but not in the game (e.g. Advanced Bandage, Amethyst, Refined Sand)
-  if (cc <= 0 || item.liquid || item.hidden) return null;
+  // items are in the table but not in the game (e.g. Advanced Bandage, Amethyst, Refined Sand).
+  // Brew Barrel beverages don't go in either (confirmed in game; the data has a cauldron cost for them anyway)
+  if (cc <= 0 || item.liquid || item.hidden || isBeverage(item)) return null;
   return { id: item.id, name: item.name, cc, ct: item.cauldron_target ?? 0, cm: item.cauldron_coef ?? 0 };
 }
 

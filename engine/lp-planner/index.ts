@@ -1,9 +1,10 @@
 import { solve } from "yalps";
-import { PlannerConfig, ProductionNode } from "../types";
+import { PlannerConfig, ProductionNode, Recipe } from "../types";
+import type { EfficiencyContext } from "./types";
 import { buildEfficiencyContext } from "./efficiency";
-import { buildLPModel, getAllRecipes } from "./model-builder";
+import { buildLPModel, getRecipeById } from "./model-builder";
 import { interpretSolution } from "./solution-interpreter";
-import { clearLiquidBeltFlags } from "../item-utils";
+import { clearLiquidBeltFlags, getItem, isNurseryMachine, normalizeItemId, resolveMachineName } from "../item-utils";
 
 /**
  * Calculate production using Linear Programming (Matrix Solver).
@@ -71,24 +72,56 @@ function solveLP(config: PlannerConfig): ProductionNode[] {
       console.log("[LP Planner] Generated", nodes.length, "root nodes");
       if (!config.wholeMachines) return nodes;
 
-      // Closest exact solve: re-solve with integer machine counts, only over the recipes the
-      // continuous plan actually used (keeps branch & bound small).
-      const active = new Set<string>();
-      for (const [name, value] of solution.variables) {
-        if (name.startsWith("recipe_") && value > 1e-6) active.add(name.slice(7));
-      }
-      const exclude = new Set(excluded);
-      getAllRecipes().forEach((r) => { if (!active.has(r.id)) exclude.add(r.id); });
-      const intModel = buildLPModel(config, ctx, exclude, active);
-      const intSolution = solve(intModel, { timeout: 5000 });
-      console.log("[LP Planner] Whole-machine solution status:", intSolution.status);
-      if (intSolution.status !== "optimal") return nodes; // fall back to fractional plan
-      return interpretSolution(intSolution, config, ctx);
+      const bought = new Set([...solution.variables].filter(([v, x]) => v.startsWith("raw_") && x > 1e-9).map(([v]) => v.slice(4)));
+      return solveWholeMachines(config, ctx, excluded, nodes, bought) ?? nodes; // fall back to the fractional plan
+
     }
     sinks.forEach((n) => excluded.add(n.recipeId!));
     console.log("[LP Planner] Excluding zero-output sink recipes and re-solving:", [...excluded]);
   }
   return [];
+}
+
+/**
+ * Whole machines, "fill upstream". Over only the recipes the fractional plan used:
+ *   1. the start of each chain (recipes that take nothing the plan makes, e.g. nurseries, ore crushers) gets
+ *      its machine count rounded up and pinned; fuel/fertilizer makers stay free so they never cap output;
+ *   2. every other step gets any whole number of machines, which may idle part of the time, and the targets
+ *      are scaled up together as far as those pinned machines can feed (the target is a minimum);
+ *   3. at that output, the usual objective (cost or fewest machines) picks the plan.
+ */
+function solveWholeMachines(config: PlannerConfig, ctx: EfficiencyContext, excluded: Set<string>, nodes: ProductionNode[], bought: Set<string>): ProductionNode[] | null {
+  const machines = new Map<string, number>(); // recipeId -> fractional machines in the continuous plan
+  const seen = new Set<ProductionNode>();
+  const walk = (n: ProductionNode) => {
+    if (seen.has(n)) return;
+    seen.add(n);
+    if (!n.isRaw && !n.isConsumptionReference && n.recipeId) machines.set(n.recipeId, Math.max(machines.get(n.recipeId) ?? 0, n.deviceCount));
+    n.inputs.forEach(walk);
+  };
+  nodes.forEach(walk);
+  if (machines.size === 0) return null;
+
+  const idOf = (x: { id?: string; name: string }) => x.id || normalizeItemId(x.name);
+  const recipes = [...machines.keys()].map((id) => getRecipeById(id)).filter((r): r is Recipe => !!r);
+  const made = new Set(recipes.flatMap((r) => r.outputs.map(idOf)));
+  const utility = new Set([normalizeItemId(ctx.selectedFuel), ctx.selectedFertilizer ? normalizeItemId(ctx.selectedFertilizer) : ""]);
+  const fixed = new Map<string, number>();
+  for (const r of recipes) {
+    const nursery = isNurseryMachine(resolveMachineName(r.crafted_in, ctx.useThermalExtractor));
+    const inputs = r.inputs.filter((i) => !(nursery && getItem(idOf(i))?.name.toLowerCase().endsWith(" seeds")));
+    const startsChain = inputs.every((i) => !made.has(idOf(i)));
+    if (startsChain && !utility.has(idOf(r.outputs[0]))) fixed.set(r.id, Math.max(1, Math.ceil(machines.get(r.id)! - 1e-6)));
+  }
+  const plan = { recipes: new Set(machines.keys()), fixed, buyable: bought };
+
+  const max = solve(buildLPModel(config, ctx, excluded, { ...plan, stage: "max" }), { timeout: 5000 });
+  console.log("[LP Planner] Whole machines, max output:", max.status, max.result);
+  if (max.status !== "optimal") return null;
+  const scale = -max.result;
+  const best = solve(buildLPModel(config, ctx, excluded, { ...plan, stage: "cost", minScale: scale * (1 - 1e-6) }), { timeout: 5000 });
+  console.log("[LP Planner] Whole machines, cheapest at that output:", best.status);
+  return interpretSolution(best.status === "optimal" ? best : max, config, ctx);
 }
 
 // Re-export types for convenience

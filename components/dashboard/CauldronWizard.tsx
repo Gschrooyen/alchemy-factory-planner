@@ -71,11 +71,12 @@ export function CauldronSwapButton({ node }: { node: ProductionNode }) {
   );
 }
 
-function CauldronWizard({ itemId, itemName, initial, onClose }: { itemId: string; itemName: string; initial?: string[]; onClose: () => void }) {
+/** With `onPick`, the chosen ingredients go to the caller (e.g. a recipe split) instead of pinning the item. */
+export function CauldronWizard({ itemId, itemName, initial, onPick, onClose }: { itemId: string; itemName: string; initial?: string[]; onPick?: (inputs: string[]) => void; onClose: () => void }) {
   const { factories, activeFactoryId, updateFactoryConfig } = useFactoryStore();
   const factory = factories.find((f) => f.id === activeFactoryId)!;
   // Your pin, or else the solver's choice (shown pre-filled so it can be pinned or tweaked)
-  const current = factory.config.cauldronOverrides?.[itemId] ?? initial;
+  const current = onPick ? initial : factory.config.cauldronOverrides?.[itemId] ?? initial;
   // Everything the factory already makes or buys: ingredients from this set cost nothing extra to route in
   const inFactory = useMemo(
     () => new Set(factory.nodes.map((n) => normalizeItemId(String((n.data as { itemName?: string })?.itemName ?? ""))).filter((id) => id && id !== itemId)),
@@ -152,6 +153,7 @@ function CauldronWizard({ itemId, itemName, initial, onClose }: { itemId: string
   useEffect(() => setPicked((p) => p.slice(0, slots)), [slots]);
 
   const choose = (inputs: string[] | null) => {
+    if (onPick) { if (inputs) onPick(inputs); onClose(); return; }
     const { [itemId]: _, ...rest } = factory.config.cauldronOverrides ?? {};
     updateFactoryConfig(factory.id, { cauldronOverrides: inputs ? { ...rest, [itemId]: inputs } : rest });
     onClose();
@@ -206,7 +208,7 @@ function CauldronWizard({ itemId, itemName, initial, onClose }: { itemId: string
           {picked.length > 0 && (
             <button onClick={() => setPicked([])} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">clear</button>
           )}
-          {factory.config.cauldronOverrides?.[itemId] ? (
+          {onPick ? null : factory.config.cauldronOverrides?.[itemId] ? (
             <button onClick={() => choose(null)} className="ml-auto px-3 py-1 border border-[var(--accent-gold-dim)] rounded-lg text-xs text-[var(--accent-gold)] hover:bg-[var(--surface-elevated)]">
               Back to normal recipes
             </button>

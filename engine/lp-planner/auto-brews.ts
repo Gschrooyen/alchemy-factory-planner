@@ -40,10 +40,18 @@ function unitCosts(recipes: Recipe[], config: PlannerConfig, ctx: EfficiencyCont
   const fert = ctx.selectedFertilizer ? getItem(ctx.selectedFertilizer) : undefined;
   const fertUnit = () => (fert ? cost.get(fert.id) ?? Infinity : Infinity);
 
-  // Raw: purchasable items at their price (machines metric: raws are free of machines)
+  // Raw: what the LP can actually buy, at the LP's price (machines metric: raws are free of machines).
+  // That's items no recipe makes, plus fuel/fertilizer when not self-produced. Nearly every item has a
+  // `cost` (its value), so treating all of them as buyable made every item "free" in machines mode (no
+  // brew could ever win) and capped intermediates at their value in cost mode.
+  const produced = new Set(recipes.flatMap((r) => r.outputs.map(outId)));
+  const fuelId = normalizeItemId(ctx.selectedFuel);
   for (const item of getAllItems()) {
-    const purchasable = !!item.cost && !item.hidden;
-    if (purchasable) cost.set(item.id, metric === "cost" ? item.cost! : 0);
+    if (item.hidden) continue;
+    const forcedRaw = (!ctx.selfFuel && item.id === fuelId) || (!ctx.selfFertilizer && item.id === fert?.id);
+    // Fuel/fertilizer from outside the factory is free here, as in the LP
+    if (forcedRaw) cost.set(item.id, 0);
+    else if (!produced.has(item.id)) cost.set(item.id, metric === "cost" ? item.cost || item.base_cost || 1000 : 0);
   }
   // User-supplied resources are (nearly) free either way
   for (const res of config.availableResources ?? []) cost.set(normalizeItemId(res.item), 0);
@@ -162,7 +170,7 @@ let lastBrews: Recipe[] = [];
 /** Extra candidate recipes for the LP. `recipes` is the active set (normal recipes plus user brews). */
 export function suggestBrews(recipes: Recipe[], config: PlannerConfig, ctx: EfficiencyContext): Recipe[] {
   const key = JSON.stringify([recipes.map((r) => r.id), config.targets, config.availableResources, config.optimizeFor, config.machineCost,
-    config.cauldronOverrides, config.paradoxOverrides, config.recipeOverrides, ctx]);
+    config.cauldronOverrides, config.paradoxOverrides, config.recipeOverrides, config.recipeSplits, config.useEnhancedGrinder, ctx]);
   if (key === lastKey) return lastBrews;
   lastKey = key;
   return (lastBrews = computeBrews(recipes, config, ctx));
@@ -175,6 +183,7 @@ function computeBrews(recipes: Recipe[], config: PlannerConfig, ctx: EfficiencyC
     ...Object.keys(config.cauldronOverrides ?? {}),
     ...Object.keys(config.paradoxOverrides ?? {}),
     ...Object.keys(config.recipeOverrides ?? {}),
+    ...Object.keys(config.recipeSplits ?? {}),
   ]);
   const brewable = new Set([...getCauldronOutputs(getCauldronInputs()).map((o) => o.id), "mors", "vitae"].filter((id) => !pinned.has(id)));
 

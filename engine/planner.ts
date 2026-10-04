@@ -3,6 +3,7 @@ import recipesData from "../data/recipes.json";
 import { Device, Item, PlannerConfig, ProductionNode, Recipe } from "./types";
 import { normalizeItemId, getItem, getAllItems, getEffectiveRecipeTime, resolveMachineName, clearLiquidBeltFlags, isNurseryMachine, recipeNutrients } from "./item-utils";
 import { calculateThermalYieldMultiplier } from "./lp-planner/efficiency";
+import { plantedSeeds } from "./lp-planner/solution-interpreter";
 import { attributeMultiplier, attributeValue } from "./attributes";
 import { ALCHEMY_MACHINES, THERMAL_EXTRACTOR } from "./lp-planner/types";
 
@@ -168,7 +169,7 @@ function solveNode(
         itemName: item.name,
         rate: rate,
         isRaw: true,
-        suppliedRate: rate, // If raw/source created here, it might be fully supplied? Context dependent.
+        suppliedRate: undefined as number | undefined, // set only when available resources cover it (Case 0)
         deviceId: undefined,
         deviceCount: 0,
         heatConsumption: 0,
@@ -364,6 +365,25 @@ function solveNode(
         recipe.inputs.forEach((input) => {
             const inputCountPerCraft = input.count;
             const inputRate = (inputCountPerCraft / outputCount) * neededRate;
+
+            // Nursery seeds are planted once per nursery, not consumed: a one-time count, nothing to recurse into
+            const inputItem = itemsMap.get(normalizeItemId(input.id || input.name));
+            if (isNursery && inputItem?.name.toLowerCase().endsWith(" seeds")) {
+                inputs.push({
+                    id: `${inputItem.id}-raw`,
+                    itemName: inputItem.name,
+                    rate: plantedSeeds(machinesNeeded, inputCountPerCraft),
+                    isRaw: true,
+                    planted: true,
+                    deviceCount: 0,
+                    heatConsumption: 0,
+                    inputs: [],
+                    byproducts: [],
+                    beltLimit: ctx.beltLimit,
+                    isBeltSaturated: false,
+                });
+                return;
+            }
 
             // Recurse
             const inputNode = solveNode(

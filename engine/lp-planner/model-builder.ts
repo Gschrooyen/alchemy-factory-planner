@@ -17,22 +17,44 @@ const allRecipes: Recipe[] = recipesData as unknown as Recipe[];
 // Cauldron overrides are synthesised per solve; the interpreter looks them up by id afterwards
 const syntheticRecipes = new Map<string, Recipe>();
 
+// Enhanced Grinder: "working at twice the speed of a regular one" (buildings.json), same recipes, no heat
+const ENHANCED_GRINDER_SPEED = 2;
+
 /** The recipe set for this config: normal recipes, minus the primary producers of any item the user
  *  chose to brew in a cauldron, plus one synthetic cauldron recipe per such item. */
 function activeRecipes(config: PlannerConfig, ctx: EfficiencyContext): Recipe[] {
   syntheticRecipes.clear();
+  // Same ids as the grinder recipes, so machine counts and recipe pins carry over; getRecipeById prefers these
+  const pool = config.useEnhancedGrinder
+    ? allRecipes.map((r) => {
+        if (r.crafted_in !== "grinder") return r;
+        const enhanced = { ...r, crafted_in: "enhanced-grinder", time: r.time / ENHANCED_GRINDER_SPEED };
+        syntheticRecipes.set(r.id, enhanced);
+        return enhanced;
+      })
+    : allRecipes;
   // A cauldron/paradox brew is a recipe pin on its item: the synthetic recipe becomes the only counted source
-  const pins: Record<string, string> = { ...(config.recipeOverrides ?? {}) };
+  const pins: Record<string, string[]> = Object.fromEntries(Object.entries(config.recipeOverrides ?? {}).map(([k, v]) => [k, [v]]));
   for (const [itemId, inputs] of Object.entries(config.cauldronOverrides ?? {})) {
     const r = cauldronRecipeFor(itemId, inputs);
     // An override the game would not brew is ignored rather than leaving the item unmakeable
-    if (r) { syntheticRecipes.set(r.id, r); pins[itemId] = r.id; }
+    if (r) { syntheticRecipes.set(r.id, r); pins[itemId] = [r.id]; }
   }
   for (const [itemId, inputId] of Object.entries(config.paradoxOverrides ?? {})) {
     const r = paradoxRecipeFor(itemId, inputId);
-    if (r) { syntheticRecipes.set(r.id, r); pins[itemId] = r.id; }
+    if (r) { syntheticRecipes.set(r.id, r); pins[itemId] = [r.id]; }
   }
-  const base = applyRecipeOverrides([...allRecipes, ...syntheticRecipes.values()], pins);
+  // A split pins the item to its chosen recipes (normal or brews, and wins over a single brew/pin);
+  // the shares themselves are constraints in buildLPModel
+  for (const [itemId, shares] of Object.entries(config.recipeSplits ?? {})) {
+    for (const key of Object.keys(shares)) {
+      const r = key.startsWith(SPLIT_BREW_PREFIX) ? splitBrewRecipe(itemId, key) : undefined;
+      if (r) syntheticRecipes.set(key, r);
+    }
+    pins[itemId] = Object.keys(shares);
+  }
+  const brewsAndPins = [...syntheticRecipes.values()].filter((r) => !pool.includes(r));
+  const base = applyRecipeOverrides([...pool, ...brewsAndPins], pins);
   if (!config.autoBrews) return base;
   // Brew solver: extra candidates the LP may use; pinned items are left alone
   const brews = suggestBrews(base, config, ctx);
@@ -40,17 +62,27 @@ function activeRecipes(config: PlannerConfig, ctx: EfficiencyContext): Recipe[] 
   return [...base, ...brews];
 }
 
-/** "Make X only with recipe R": every other recipe's X output stops counting (dropped entirely when X is its
+/** Split entries that are brews rather than normal recipes: "brew:cauldron:<ingredient ids, comma-separated>"
+ *  or "brew:paradox:<input id>". The key is the recipe id, so an item can split across several brews. */
+export const SPLIT_BREW_PREFIX = "brew:";
+export const splitBrewKey = (kind: "cauldron" | "paradox", inputs: string[]) => `${SPLIT_BREW_PREFIX}${kind}:${inputs.join(",")}`;
+export function splitBrewRecipe(itemId: string, key: string): Recipe | undefined {
+  const [, kind, arg = ""] = key.split(":");
+  const r = kind === "cauldron" ? cauldronRecipeFor(itemId, arg.split(",")) : kind === "paradox" ? paradoxRecipeFor(itemId, arg) : null;
+  return r ? { ...r, id: key } : undefined; // a brew the game wouldn't make is dropped from the split
+}
+
+/** "Make X only with recipes R": every other recipe's X output stops counting (dropped entirely when X is its
  *  primary product). Recipes that also consume X keep it, so recycling loops (Lapis returning Shattered
  *  Crystal) stay intact. Unknown recipe ids are ignored. */
-function applyRecipeOverrides(recipes: Recipe[], overrides: Record<string, string>): Recipe[] {
+function applyRecipeOverrides(recipes: Recipe[], overrides: Record<string, string[]>): Recipe[] {
   const outId = (o: Recipe["outputs"][number]) => o.id || normalizeItemId(o.name);
   const inId = (i: Recipe["inputs"][number]) => i.id || normalizeItemId(i.name);
   let result = recipes;
-  for (const [itemId, recipeId] of Object.entries(overrides)) {
-    if (!result.some((r) => r.id === recipeId)) continue;
+  for (const [itemId, recipeIds] of Object.entries(overrides)) {
+    if (!result.some((r) => recipeIds.includes(r.id))) continue;
     result = result.flatMap((r) => {
-      if (r.id === recipeId || !r.outputs.some((o) => outId(o) === itemId) || r.inputs.some((i) => inId(i) === itemId)) return [r];
+      if (recipeIds.includes(r.id) || !r.outputs.some((o) => outId(o) === itemId) || r.inputs.some((i) => inId(i) === itemId)) return [r];
       if (outId(r.outputs[0]) === itemId) return [];
       return [{ ...r, outputs: r.outputs.filter((o) => outId(o) !== itemId) }];
     });
@@ -98,16 +130,33 @@ allRecipes.forEach((recipe) => {
  * - "machines": minimize the total machine count, with raw cost kept only as a tie-breaker
  */
 export const HEAT_ITEM = "__heat";
-const OVERSHOOT_COST = 1e3; // per unit/min of target above what was asked (whole-machine mode)
+const MAX_SCALE = 1000; // whole-machine fill: never scale targets beyond this (guards an unbounded model)
 const RECIPE_TIEBREAK = 0.001; // nudge against degenerate surplus-shuffling when minimizing cost
 const RAW_TIEBREAK = 1e-6; // when minimizing machines, cheaper raws still win ties
-const SUPPLY_TIEBREAK = 1e-4; // supplied resources are nearly free, but using fewer still wins ties
+// Supplied resources (and fuel/fertilizer from outside the factory) are free: a flat, tiny price per unit, so
+// using fewer still wins ties. Flat, not a share of the item's value: 1e-4 of a 250k Ruby (25/unit) cost more
+// than a whole machine in fewest-machines mode, so the planner made Ruby instead of using the Ruby supplied.
+const SUPPLY_TIEBREAK = 1e-7;
+
+/**
+ * Whole machines, "fill upstream": only `recipes` are in the model, each with a whole machine count that
+ * may run below full speed. Machines of the recipes in `fixed` (the start of each chain) are pinned to that
+ * count. All targets are scaled together by `scale` (>= 1): stage "max" maximises it; stage "cost" keeps it at
+ * `minScale` and minimises the usual objective with machine counts (not runs) as the machine cost.
+ */
+export interface WholeMachinePlan {
+  recipes: Set<string>;
+  buyable: Set<string>; // items the fractional plan bought; anything else it only had from supply stays capped at that
+  fixed: Map<string, number>;
+  stage: "max" | "cost";
+  minScale?: number;
+}
 
 export function buildLPModel(
   config: PlannerConfig,
   ctx: EfficiencyContext,
   excludeRecipes: Set<string> = new Set(),
-  integerRecipes: Set<string> = new Set() // recipes whose machine count must be a whole number
+  whole?: WholeMachinePlan
 ): Model<string> {
   const integers: string[] = [];
   const variables = new Map<string, Map<string, number>>();
@@ -161,7 +210,7 @@ export function buildLPModel(
       return outputId === fertilizerId;
     });
 
-    if (recipeProducesFuel || recipeProducesFertilizer || excludeRecipes.has(recipe.id)) {
+    if (recipeProducesFuel || recipeProducesFertilizer || excludeRecipes.has(recipe.id) || (whole && !whole.recipes.has(recipe.id))) {
       return; // Skip this recipe
     }
 
@@ -338,12 +387,19 @@ export function buildLPModel(
       minActivations.set(recipe.id, overrideMachines * 60 / effectiveTime);
     }
 
-    // Whole machines: machines_<id> is an integer and recipe activation = machines * runs/min/machine
-    if (integerRecipes.has(recipe.id)) {
+    // Whole machines: machines_<id> is an integer and runs <= machines * runs/min/machine (a machine may idle
+    // part of the time, so an odd ratio doesn't force a leftover); pinned count for the start of a chain
+    if (whole) {
       const runsPerMachine = 60 / (recipeTime / ctx.speedMultiplier);
-      variables.set(`machines_${recipe.id}`, new Map([[`link_${recipe.id}`, runsPerMachine]]));
+      const machineVar = new Map([[`link_${recipe.id}`, runsPerMachine]]);
+      const fixed = whole.fixed.get(recipe.id);
+      if (fixed !== undefined) {
+        machineVar.set(`link_fixed_${recipe.id}`, 1);
+        constraints.set(`link_fixed_${recipe.id}`, { equal: fixed });
+      }
+      variables.set(`machines_${recipe.id}`, machineVar);
       recipeCoeffs.set(`link_${recipe.id}`, -1);
-      constraints.set(`link_${recipe.id}`, { equal: 0 });
+      constraints.set(`link_${recipe.id}`, { min: 0 });
       integers.push(`machines_${recipe.id}`);
     }
   });
@@ -358,6 +414,21 @@ export function buildLPModel(
       variables.set(`burn_${item.id}`, new Map([[item.id, -1], [HEAT_ITEM, item.heat_value * ctx.fuelMultiplier]]));
       if (buyTargetFuel && item.id === fuelId) variables.get(`burn_${item.id}`)!.set("link_boughtfuel", -1);
       itemProducedBy.get(HEAT_ITEM)!.add(`burn_${item.id}`);
+    });
+  }
+
+  // Recipe splits: recipe r makes exactly its share of the item's output from the split's recipes.
+  // Shares are renormalised over the recipes still in the model (one may have been excluded).
+  for (const [itemId, shares] of Object.entries(config.recipeSplits ?? {})) {
+    const out = Object.keys(shares)
+      .map((id) => ({ id, share: shares[id], coeff: variables.get(`recipe_${id}`)?.get(itemId) ?? 0 }))
+      .filter((r) => r.share > 0 && r.coeff > EPSILON);
+    const total = out.reduce((sum, r) => sum + r.share, 0);
+    // n-1 constraints pin all n shares (the last follows); for each r: c_r x_r - s_r * sum_q c_q x_q = 0
+    out.slice(1).forEach((r) => {
+      const key = `link_split_${itemId}_${r.id}`;
+      out.forEach((q) => variables.get(`recipe_${q.id}`)!.set(key, (q.id === r.id ? q.coeff : 0) - (r.share / total) * q.coeff));
+      constraints.set(key, { equal: 0 });
     });
   }
 
@@ -386,8 +457,9 @@ export function buildLPModel(
       isRawMaterial = true;
     }
 
-    // Create raw material variable if needed
-    if (isRawMaterial) {
+    // Create raw material variable if needed (whole machines: only what the fractional plan bought, so filling
+    // machines never starts buying an item the user supplied, e.g. a 250k Ruby)
+    if (isRawMaterial && (!whole || whole.buyable.has(itemName))) {
       const rawVar = `raw_${itemName}`;
       const rawCoeffs = new Map<string, number>();
       rawCoeffs.set(itemName, 1); // raw purchase adds 1 per unit
@@ -399,7 +471,7 @@ export function buildLPModel(
     if (availableRate > 0) {
       variables.set(`supply_${itemName}`, new Map([[itemName, 1], [`link_supply_${itemName}`, 1]]));
       constraints.set(`link_supply_${itemName}`, { max: availableRate });
-      objective.set(`supply_${itemName}`, (itemsMap.get(itemName)?.cost || 1000) * SUPPLY_TIEBREAK);
+      objective.set(`supply_${itemName}`, SUPPLY_TIEBREAK);
     }
 
     // Constraint: net_flow >= required
@@ -412,15 +484,21 @@ export function buildLPModel(
     if (itemName === HEAT_ITEM) {
       // Heat can't be stockpiled: fuel burned must exactly match what machines draw
       constraints.set(`item_${itemName}`, { equal: 0 });
-    } else if (isTarget && integerRecipes.size > 0) {
-      // Whole machines: overshoot of the target is measured and minimised
-      constraints.set(`item_${itemName}`, { equal: rhs });
-      variables.set(`over_${itemName}`, new Map([[itemName, -1]]));
-      objective.set(`over_${itemName}`, OVERSHOOT_COST);
+    } else if (isTarget && whole) {
+      // Whole machines: the target is a minimum, scaled by `scale` (see below)
+      constraints.set(`item_${itemName}`, { min: 0 });
     } else {
       constraints.set(`item_${itemName}`, { min: rhs });
     }
   });
+
+  // Whole machines: every target gets scale * its rate, all together (their ratio is kept)
+  if (whole) {
+    const scaleVar = new Map<string, number>([["link_scale", 1]]);
+    targets.forEach((rate, itemId) => { if (allItems.has(itemId)) scaleVar.set(itemId, -rate); });
+    variables.set("scale", scaleVar);
+    constraints.set("link_scale", { min: whole.stage === "cost" ? whole.minScale ?? 1 : 1, max: MAX_SCALE });
+  }
 
   if (buyTargetFuel && allItems.has(fuelId)) {
     variables.set(`raw_${fuelId}`, new Map([[fuelId, 1], ["link_boughtfuel", 1]]));
@@ -433,7 +511,10 @@ export function buildLPModel(
       const itemName = varName.slice(4); // Remove "raw_" prefix
       const item = itemsMap.get(itemName);
       const cost = item?.cost || item?.base_cost || 1000; // Default cost if not specified
-      objective.set(varName, minimizeMachines ? cost * RAW_TIEBREAK : cost);
+      // Fuel/fertilizer not produced here comes from outside this factory: free like supplied resources,
+      // with just a tie-break so using less of it still wins
+      const external = (!ctx.selfFuel && itemName === fuelId) || (!ctx.selfFertilizer && itemName === fertilizerId);
+      objective.set(varName, external ? SUPPLY_TIEBREAK : minimizeMachines ? cost * RAW_TIEBREAK : cost);
     }
   });
 
@@ -462,6 +543,13 @@ export function buildLPModel(
       varDef.cost = minimizeMachines
         ? machinesPerActivation.get(varName) ?? RECIPE_TIEBREAK
         : RECIPE_TIEBREAK + (machinesPerActivation.get(varName) ?? 0) * (config.machineCost ?? 0);
+    }
+
+    // Whole machines: pay per machine built (integer), not per run; stage "max" only maximises the scale
+    if (whole) {
+      if (varName.startsWith("machines_")) varDef.cost = minimizeMachines ? 1 : config.machineCost ?? 0;
+      if (varName.startsWith("recipe_")) varDef.cost = RECIPE_TIEBREAK;
+      if (whole.stage === "max") varDef.cost = varName === "scale" ? -1 : 0;
     }
 
     // Pin overridden recipes to at least the user's machine count
@@ -533,5 +621,5 @@ export function getAllRecipes(): Recipe[] {
  * Find recipe by ID
  */
 export function getRecipeById(id: string): Recipe | undefined {
-  return allRecipes.find((r) => r.id === id) ?? syntheticRecipes.get(id);
+  return syntheticRecipes.get(id) ?? allRecipes.find((r) => r.id === id);
 }

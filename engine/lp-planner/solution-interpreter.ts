@@ -10,6 +10,25 @@ function getEffectiveRecipeTime(recipe: Recipe, ctx: EfficiencyContext): number 
   return effectiveRecipeTime(recipe, ctx.selectedFertilizer, ctx.fertilizerMultiplier, ctx.beltLimit, ctx.speedMultiplier);
 }
 
+/** Per item, what a recipe hands straight back to itself (e.g. the Athanor's Iron Ingot from making steel):
+ *  min(output, input) of the same item. The machine loops it into its own input, so it's neither a
+ *  byproduct nor an input drawn from elsewhere. Same netting the LP model does per recipe. */
+function selfRecycled(recipe: Recipe, activationRate: number, machineName: string, ctx: EfficiencyContext): Map<string, number> {
+  const recycled = new Map<string, number>();
+  recipe.outputs.forEach((output) => {
+    const itemId = output.id || normalizeItemId(output.name);
+    const inCount = recipe.inputs
+      .filter((i) => (i.id || normalizeItemId(i.name)) === itemId)
+      .reduce((sum, i) => sum + i.count, 0);
+    if (!inCount) return;
+    const count = typeof output.count === "string" ? parseFloat(output.count) : output.count;
+    const pct = output.percentage ? (typeof output.percentage === "string" ? parseFloat(output.percentage) : output.percentage) : 100;
+    const out = activationRate * count * (pct / 100) * getOutputMultiplier(machineName, ctx);
+    recycled.set(itemId, (recycled.get(itemId) ?? 0) + Math.min(out, activationRate * inCount));
+  });
+  return recycled;
+}
+
 interface ItemFlow {
   produced: number;
   consumed: number;
@@ -37,6 +56,8 @@ export function interpretSolution(
   const rawPurchases = new Map<string, number>();
   const supplied = new Map<string, number>(); // itemId -> items/min drawn from the user's available resources
   const burned = new Map<string, number>(); // fuelId -> items/min burned for heat (burnByproducts mode)
+  const built = new Map<string, number>(); // whole-machine mode: recipeId -> machines built (some may idle)
+  let scale = 1; // whole-machine mode: targets were scaled up to fill the machines (the target is a minimum)
 
   // solution.variables is an array of [varName, value] tuples
   for (const [varName, value] of solution.variables) {
@@ -52,6 +73,10 @@ export function interpretSolution(
       burned.set(varName.slice(5), value);
     } else if (varName.startsWith("supply_")) {
       supplied.set(varName.slice(7), value);
+    } else if (varName.startsWith("machines_")) {
+      built.set(varName.slice(9), Math.round(value));
+    } else if (varName === "scale") {
+      scale = value;
     }
   }
 
@@ -95,7 +120,8 @@ export function interpretSolution(
     const primaryOutputId = primaryOutput.id || normalizeItemId(primaryOutput.name);
     const primaryOutputItem = getItem(primaryOutputId);
 
-    // Calculate output rates
+    // Calculate output rates, net of what the machine feeds back into itself
+    const recycled = selfRecycled(recipe, activationRate, machineName, ctx);
     const outputRates = new Map<string, number>();
     recipe.outputs.forEach((output) => {
       const count = typeof output.count === "string" ? parseFloat(output.count) : output.count;
@@ -104,7 +130,7 @@ export function interpretSolution(
         : 100;
       const rate = activationRate * count * (percentage / 100) * getOutputMultiplier(machineName, ctx);
       const outputId = output.id || normalizeItemId(output.name);
-      outputRates.set(outputId, rate);
+      outputRates.set(outputId, rate - (recycled.get(outputId) ?? 0));
     });
 
     // Calculate byproducts (all outputs except primary) - use proper names from items data
@@ -114,6 +140,7 @@ export function interpretSolution(
       return {
         itemName: outputItem?.name || output.name,
         rate: outputRates.get(outputId) || 0,
+        ...(recycled.get(outputId) && { recycled: recycled.get(outputId) }),
       };
     });
 
@@ -157,7 +184,7 @@ export function interpretSolution(
       isRaw: false,
       recipeId: recipe.id,
       deviceId: device?.id,
-      deviceCount: machineCount,
+      deviceCount: built.get(recipeId) ?? machineCount, // heat above follows actual running time
       heatConsumption,
       parentFurnaceId,
       parentFurnaceCount,
@@ -236,7 +263,7 @@ export function interpretSolution(
       const nodeId = `${itemId}-raw`;
       // Only create if not already exists
       if (!productionNodes.has(nodeId)) {
-        const seedRate = activationRate * input.count;
+        const seedRate = 0; // per consumer: one planting per nursery, set when linking (see linkProductionNodes)
         const node: ProductionNode = {
           id: nodeId,
           itemName: item.name,
@@ -248,6 +275,7 @@ export function interpretSolution(
           byproducts: [],
           beltLimit: ctx.beltLimit,
           isBeltSaturated: seedRate > ctx.beltLimit,
+          planted: true,
         };
         productionNodes.set(nodeId, node);
       }
@@ -278,7 +306,7 @@ export function interpretSolution(
   itemFlows.forEach((flow, itemId) => {
     const targetRate = targets
       .filter((t) => normalizeItemId(t.item) === itemId)
-      .reduce((sum, t) => sum + t.rate, 0);
+      .reduce((sum, t) => sum + t.rate, 0) * scale;
     const surplus = flow.produced - flow.consumed - targetRate;
     if (surplus <= EPSILON) return;
     // ponytail: attach to the first producing node; per-recipe split not needed for display
@@ -292,24 +320,26 @@ export function interpretSolution(
     const targetItem = getItem(targetItemId);
     const targetItemName = targetItem?.name || target.item;
 
-    // Find the production node(s) for this target
-    productionNodes.forEach((node) => {
-      if (node.itemName === targetItemName && !node.isRaw) {
-        // Calculate NET output rate (produced - consumed internally)
-        // This shows actual output available, not gross production
-        const flow = itemFlows.get(targetItemId);
-        // Bought units of the item (only ever fuel) cover consumption before produced ones do
-        const bought = rawPurchases.get(targetItemId) || 0;
-        const netRate = flow ? flow.produced - Math.max(0, flow.consumed - bought) : node.rate;
+    // Find the production node(s) for this target. Several recipes can make it (a split, or two brews the
+    // solver picked): each gets its share of the item's net output, not the whole of it
+    const makers = [...productionNodes.values()].filter((n) => n.itemName === targetItemName && !n.isRaw);
+    const makersRate = makers.reduce((sum, n) => sum + n.rate, 0);
+    makers.forEach((node) => {
+      // Calculate NET output rate (produced - consumed internally)
+      // This shows actual output available, not gross production
+      const flow = itemFlows.get(targetItemId);
+      // Bought units of the item (only ever fuel) cover consumption before produced ones do
+      const bought = rawPurchases.get(targetItemId) || 0;
+      const share = makersRate > EPSILON ? node.rate / makersRate : 1 / makers.length;
+      const netRate = flow ? (flow.produced - Math.max(0, flow.consumed - bought)) * share : node.rate;
 
-        // Create a copy with netOutputRate set for the target edge
-        // Keep rate as gross production for the node display
-        const rootNode: ProductionNode = {
-          ...node,
-          netOutputRate: netRate,
-        };
-        roots.push(rootNode);
-      }
+      // Create a copy with netOutputRate set for the target edge
+      // Keep rate as gross production for the node display
+      const rootNode: ProductionNode = {
+        ...node,
+        netOutputRate: netRate,
+      };
+      roots.push(rootNode);
     });
   });
 
@@ -370,8 +400,9 @@ function calculateItemFlows(
     if (!recipe) return;
 
     const machineName = resolveMachineName(recipe.crafted_in, ctx.useThermalExtractor);
+    const recycled = selfRecycled(recipe, activationRate, machineName, ctx);
 
-    // Track outputs
+    // Track outputs (net of self-recycling, so the loop doesn't show up as a shareable byproduct)
     recipe.outputs.forEach((output) => {
       const itemId = output.id || normalizeItemId(output.name);
       const flow = getOrCreateFlow(itemId);
@@ -380,7 +411,9 @@ function calculateItemFlows(
       const percentage = output.percentage
         ? (typeof output.percentage === "string" ? parseFloat(output.percentage) : output.percentage)
         : 100;
-      const rate = activationRate * count * (percentage / 100) * getOutputMultiplier(machineName, ctx);
+      const rate = activationRate * count * (percentage / 100) * getOutputMultiplier(machineName, ctx) - (recycled.get(itemId) ?? 0);
+      // Fully recycled (steel's Iron Ingot): not a source anyone else can draw from
+      if (rate < EPSILON) return;
 
       flow.produced += rate;
       flow.sources.push({ recipeId, rate });
@@ -400,7 +433,8 @@ function calculateItemFlows(
       }
 
       const flow = getOrCreateFlow(itemId);
-      const rate = activationRate * input.count;
+      const rate = activationRate * input.count - (recycled.get(itemId) ?? 0);
+      if (rate < EPSILON) return;
 
       flow.consumed += rate;
       flow.consumers.push({ recipeId, rate });
@@ -527,6 +561,7 @@ function linkProductionNodes(
     if (!node) return;
 
     const machineName = resolveMachineName(recipe.crafted_in, ctx.useThermalExtractor);
+    const recycled = selfRecycled(recipe, activationRate, machineName, ctx);
 
     if (!addedInputs.has(nodeId)) {
       addedInputs.set(nodeId, new Set());
@@ -538,7 +573,9 @@ function linkProductionNodes(
     // but we still link them for IO summary visibility
     recipe.inputs.forEach((input) => {
       const inputId = input.id || normalizeItemId(input.name);
-      const inputRate = activationRate * input.count;
+      // What the machine loops back to itself isn't drawn from any source
+      const inputRate = activationRate * input.count - (recycled.get(inputId) ?? 0);
+      if (inputRate < EPSILON) return;
 
       // Find the source node for this input
       const flow = itemFlows.get(inputId);
@@ -581,7 +618,9 @@ function linkProductionNodes(
         const rawNode = nodes.get(rawNodeId);
         if (rawNode && !nodeInputs.has(rawNodeId)) {
           nodeInputs.add(rawNodeId);
-          node.inputs.push(createInputReference(rawNode, inputRate, inputId));
+          // Seeds are planted once per nursery, not used up per cycle: the "rate" is how many to plant
+          const rate = rawNode.planted ? plantedSeeds(node.deviceCount, input.count) : inputRate;
+          node.inputs.push(createInputReference(rawNode, rate, inputId));
           addDependency(nodeId, rawNodeId);
         }
       }
@@ -741,6 +780,11 @@ function linkProductionNodes(
       });
     }
   });
+}
+
+/** Seeds to plant for a nursery group: one planting per (whole) nursery. */
+export function plantedSeeds(nurseries: number, seedsPerNursery: number): number {
+  return Math.ceil(nurseries - 1e-6) * seedsPerNursery;
 }
 
 /**

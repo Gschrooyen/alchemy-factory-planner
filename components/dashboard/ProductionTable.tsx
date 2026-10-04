@@ -12,34 +12,41 @@ interface Row {
     node: ProductionNode;
     stage: number; // longest chain of machines below it (raw = 0), so stages read like the build order
     consumers: string[]; // where the output goes
+    total: number; // raw inputs: summed over every consumer (each consumer holds its own copy of the raw node)
 }
 
 /** Flatten the shared node graph into one row per machine, ordered from raw materials to targets. */
-function collectRows(roots: ProductionNode[]) {
+export function collectRows(roots: ProductionNode[]) {
     const rows = new Map<string, Row>();
     const consumersOf = new Map<string, Set<string>>();
     const stageOf = new Map<string, number>();
+    const rawTotal = new Map<string, number>();
     const key = (n: ProductionNode) => n.id ?? n.itemName;
 
     const visit = (n: ProductionNode): number => {
+        // References (e.g. a byproduct input) only point at the real machine: same stage, not one more
+        if (n.isConsumptionReference && n.inputs[0]) return visit(n.inputs[0]);
         const k = key(n);
+        if (n.isRaw) rawTotal.set(k, (rawTotal.get(k) ?? 0) + n.rate);
         if (stageOf.has(k)) return stageOf.get(k)!;
         stageOf.set(k, 0); // guards loops (fuel cycles): the second visit sees a provisional 0
         let stage = 0;
         for (const input of n.inputs) {
-            if (!consumersOf.has(key(input))) consumersOf.set(key(input), new Set());
-            consumersOf.get(key(input))!.add(n.itemName);
+            const source = input.isConsumptionReference && input.inputs[0] ? input.inputs[0] : input;
+            if (!consumersOf.has(key(source))) consumersOf.set(key(source), new Set());
+            consumersOf.get(key(source))!.add(n.itemName);
             const s = visit(input);
             if (input.inputKind === undefined && !input.isRaw) stage = Math.max(stage, s + 1);
         }
         stageOf.set(k, stage);
-        if (!rows.has(k) && !n.isConsumptionReference) rows.set(k, { node: n, stage, consumers: [] });
+        if (!rows.has(k) && !n.isConsumptionReference) rows.set(k, { node: n, stage, consumers: [], total: 0 });
         return stage;
     };
     roots.forEach(visit);
 
     // References (fuel/fertilizer/raw inputs) point at the real node by id; merge them into the real row
     const list = [...rows.values()];
+    for (const r of list) r.total = rawTotal.get(key(r.node)) ?? r.node.rate;
     for (const r of list) r.consumers = [...(consumersOf.get(key(r.node)) ?? [])].filter((c) => c !== r.node.itemName);
     return list;
 }
@@ -70,7 +77,7 @@ function InputChip({ input, rate }: { input: ProductionNode; rate: number }) {
             {kind === "fuel" && <Flame size={9} />}
             {kind === "fertilizer" && <Leaf size={9} />}
             {input.itemName}
-            <span className="font-mono opacity-80">{fmt(rate, 2)}</span>
+            <span className="font-mono opacity-80">{input.planted ? `plant ×${rate}` : fmt(rate, 2)}</span>
         </span>
     );
 }
@@ -90,14 +97,16 @@ export function ProductionTable({ roots }: { roots: ProductionNode[] }) {
             <section className="flex flex-col gap-2">
                 <h3 className="text-[var(--success)] font-bold uppercase text-xs tracking-widest">Raw inputs</h3>
                 <div className="flex flex-wrap gap-2">
-                    {raws.map(({ node, consumers }) => (
+                    {raws.map(({ node, consumers, total }) => (
                         <span
                             key={node.id ?? node.itemName}
                             className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[var(--success-dim)]/20 border border-[var(--success)]/30"
                             title={consumers.length ? `→ ${consumers.join(", ")}` : undefined}
                         >
                             <span className="text-[var(--text-primary)]">{node.itemName}</span>
-                            <span className="font-mono text-[var(--success)]">{fmt(node.suppliedRate ?? node.rate)}/m</span>
+                            <span className="font-mono text-[var(--success)]" title={node.planted ? "Planted once per nursery, not used up" : undefined}>
+                                {node.planted ? `plant ×${total}` : `${fmt(total)}/m`}
+                            </span>
                             {node.isBeltSaturated && <span className="text-[9px] uppercase text-[var(--error)]">belt</span>}
                         </span>
                     ))}
@@ -165,6 +174,7 @@ function StageRows({ stage, last, rows, targets }: { stage: number; last: boolea
                                     {node.byproducts.map((bp) => (
                                         <span key={bp.itemName} className="inline-flex items-center gap-1">
                                             +{bp.itemName} {fmt(bp.remaining ?? bp.rate)}/m
+                                            {bp.recycled ? <span title="Loop this output back into the same machines' input">(↻ {fmt(bp.recycled)} fed back in)</span> : null}
                                             <RecipeSwapButton node={{ itemName: bp.itemName, isRaw: false, rate: bp.rate, deviceCount: 0, heatConsumption: 0, inputs: [], byproducts: [] }} />
                                         </span>
                                     ))}
