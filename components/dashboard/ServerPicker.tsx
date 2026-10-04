@@ -38,7 +38,7 @@ export function ServerPicker() {
                     aria-label="Server"
                     value={active.id}
                     onChange={(e) => setActiveServer(e.target.value)}
-                    className="bg-[var(--surface)] text-sm text-[var(--text-primary)] px-2 py-1.5 rounded-lg border border-[var(--border)] hover:border-[var(--accent-gold-dim)] outline-none cursor-pointer max-w-44"
+                    className="appearance-none bg-[var(--surface)] text-sm text-[var(--text-primary)] px-2 py-1.5 rounded-lg border border-[var(--border)] hover:border-[var(--accent-gold-dim)] outline-none cursor-pointer max-w-44"
                 >
                     {servers.map((s) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
