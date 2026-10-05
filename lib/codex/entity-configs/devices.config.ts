@@ -1,7 +1,6 @@
 import type { Device, Item, Recipe } from "@/engine/types";
 import type { EntityConfig } from "../types";
-import { getEffectiveRecipeTime } from "@/engine/item-utils";
-import { ENHANCED_GRINDER_SPEED } from "@/engine/lp-planner/model-builder";
+import { ENHANCED_GRINDER_SPEED, getEffectiveRecipeTime } from "@/engine/item-utils";
 import devicesData from "@/data/devices.json";
 import recipesData from "@/data/recipes.json";
 import itemsData from "@/data/items.json";

@@ -62,6 +62,8 @@ export function getAllItems(): Item[] {
 /** Machines that grow plants on fertilizer: nutrient-driven cycle time, fertilizer consumed per nutrients. */
 /** Trees ignore the fertilizer's own delivery rate and burn nutrient value at a flat rate (measured):
  *  World Tree Nursery 40k V/s (99 leaves + 1 core per 6M V = 150 s), Miniature World Tree 20k V/s (30k V leaves only). */
+// Enhanced Grinder: "working at twice the speed of a regular one" (buildings.json), same recipes, no heat
+export const ENHANCED_GRINDER_SPEED = 2;
 export const TREE_NUTRIENTS_PER_SEC: Record<string, number> = { "world-tree-nursery": 40000, "miniature-world-tree": 20000 };
 export const isNurseryMachine = (name: string) => /^(nursery|world[ -]tree[ -]nursery|miniature[ -]world[ -]tree)$/.test(name);
 
