@@ -15,7 +15,7 @@ const codexLinks = [
   { href: "/cauldron", label: "Cauldron", icon: FlaskConical },
   { href: "/advanced-cauldron", label: "Advanced Cauldron", icon: FlaskConical },
   { href: "/paradox-crucible", label: "Paradox Crucible", icon: FlaskConical },
-  { href: "/devices", label: "Devices", icon: Cog, comingSoon: true },
+  { href: "/devices", label: "Devices", icon: Cog },
   { href: "/recipes", label: "Recipes", icon: BookOpen, comingSoon: true },
 ];
 

@@ -18,7 +18,7 @@ const allRecipes: Recipe[] = recipesData as unknown as Recipe[];
 const syntheticRecipes = new Map<string, Recipe>();
 
 // Enhanced Grinder: "working at twice the speed of a regular one" (buildings.json), same recipes, no heat
-const ENHANCED_GRINDER_SPEED = 2;
+export const ENHANCED_GRINDER_SPEED = 2;
 
 /** The recipe set for this config: normal recipes, minus the primary producers of any item the user
  *  chose to brew in a cauldron, plus one synthetic cauldron recipe per such item. */
