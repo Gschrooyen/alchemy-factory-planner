@@ -7,10 +7,11 @@
  * ladders only exist inside the game's own DataTables, so this reads the shipped paks:
  *   DT_Attributes   -> base value and unit for every attribute
  *   DT_Improvements -> the per-level effect of each research node
+ *   DT_UpgradePoints -> how many times a repeatable node can be bought (MaxUnlimitedLevel, 0 = no limit)
  *
  * Usage:
  *   bun run extract-attributes --usmap <Mappings.usmap> [--paks <Paks dir>]
- *   bun run extract-attributes --from <dir with DT_Attributes.json + DT_Improvements.json>
+ *   bun run extract-attributes --from <dir with DT_Attributes, DT_Improvements and DT_UpgradePoints .json>
  *
  * The .usmap is required because UE5 shipping builds strip property names. Generate one once
  * per game version by injecting Dumper-7 (https://github.com/Encryqed/Dumper-7) into the running
@@ -43,11 +44,19 @@ interface ImprovementRow {
   Effects?: { AttributeName: string; ModificationType: string; ModValue: number }[];
 }
 
+interface UpgradePointRow {
+  IsUnlimited: boolean;
+  MaxUnlimitedLevel: number;
+  Deprecated: boolean;
+  UnlockItem?: { ConfigName: string };
+}
+
 interface AttributeLadder {
   base: number;
   unit: string;
   steps: number[];
   repeatStep: number | null;
+  maxRepeats?: number;
   modType?: string;
 }
 
@@ -104,7 +113,7 @@ provider.Initialize();
 provider.MappingsContainer = new FileUsmapTypeMappingsProvider(args[1]);
 provider.Mount();
 
-foreach (var name in new[] { "DT_Attributes", "DT_Improvements" })
+foreach (var name in new[] { "DT_Attributes", "DT_Improvements", "DT_UpgradePoints" })
 {
     var path = $"AlchemyFactory/Content/DataTables/{name}.uasset";
     var exports = provider.LoadPackage(path).GetExports();
@@ -131,11 +140,21 @@ foreach (var name in new[] { "DT_Attributes", "DT_Improvements" })
  * Add and Increase are both additive on top of the base value (Increase just means the attribute
  * is a percentage), so a level's value is base + the sum of every step up to it. Deprecated
  * improvements are dropped — several attributes have a stale ladder alongside the live one.
+ * A repeatable top step gets `maxRepeats` when its research node caps the repeats.
  */
 function buildLadders(
   attributes: Record<string, AttributeRow>,
-  improvements: Record<string, ImprovementRow>
+  improvements: Record<string, ImprovementRow>,
+  upgradePoints: Record<string, UpgradePointRow>
 ): Record<string, AttributeLadder> {
+  const repeatCap: Record<string, number> = {}; // improvement row name -> max repeats
+  for (const point of Object.values(upgradePoints)) {
+    const name = point.UnlockItem?.ConfigName;
+    if (name && point.IsUnlimited && !point.Deprecated && point.MaxUnlimitedLevel > 0) {
+      repeatCap[name] = point.MaxUnlimitedLevel;
+    }
+  }
+
   const ladders: Record<string, AttributeLadder> = {};
   for (const [name, attr] of Object.entries(attributes)) {
     ladders[name] = {
@@ -146,8 +165,11 @@ function buildLadders(
     };
   }
 
-  const effectsByAttribute: Record<string, { level: number; value: number; type: string; repeat: boolean }[]> = {};
-  for (const row of Object.values(improvements)) {
+  const effectsByAttribute: Record<
+    string,
+    { level: number; value: number; type: string; repeat: boolean; maxRepeats?: number }[]
+  > = {};
+  for (const [rowName, row] of Object.entries(improvements)) {
     if (row.Deprecated) continue;
     for (const effect of row.Effects || []) {
       if (!ladders[effect.AttributeName]) continue;
@@ -156,6 +178,7 @@ function buildLadders(
         value: effect.ModValue,
         type: effect.ModificationType.split('::')[1] || effect.ModificationType,
         repeat: row.AllowRepeat,
+        maxRepeats: repeatCap[rowName],
       });
     }
   }
@@ -171,6 +194,7 @@ function buildLadders(
     const last = effects[effects.length - 1];
     ladders[name].steps = effects.map((e) => e.value);
     ladders[name].repeatStep = last.repeat ? last.value : null;
+    if (last.repeat && last.maxRepeats) ladders[name].maxRepeats = last.maxRepeats;
     ladders[name].modType = last.type;
   }
 
@@ -196,11 +220,12 @@ async function main() {
     console.log('📖 Reading DataTables...');
     const attributes = await readTable<AttributeRow>(exportDir, 'DT_Attributes');
     const improvements = await readTable<ImprovementRow>(exportDir, 'DT_Improvements');
+    const upgradePoints = await readTable<UpgradePointRow>(exportDir, 'DT_UpgradePoints');
     console.log(
       `✅ ${Object.keys(attributes).length} attributes, ${Object.keys(improvements).length} improvements\n`
     );
 
-    const ladders = buildLadders(attributes, improvements);
+    const ladders = buildLadders(attributes, improvements, upgradePoints);
     const withLadders = Object.values(ladders).filter((l) => l.steps.length > 0).length;
 
     await writeFile(`${DATA_DIR}/attributes.json`, JSON.stringify(ladders, null, 2));
