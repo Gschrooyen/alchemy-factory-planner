@@ -27,3 +27,21 @@ jobs:
       - run: bun test
       # Without Supabase keys the build is local-only, which is all CI needs to check it compiles
       - run: bun run build
+
+  version:
+    name: Version bump
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - name: Version is higher than the base branch
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --depth=1 origin "$BASE_REF"
+          git show "origin/$BASE_REF:package.json" > "$RUNNER_TEMP/base-package.json"
+          bun scripts/check-version-bump.ts "$RUNNER_TEMP/base-package.json"
