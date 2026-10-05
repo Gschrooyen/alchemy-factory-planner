@@ -140,15 +140,18 @@ The app follows [semver](https://semver.org). The version lives in `package.json
 - **minor**: new features
 - **major**: breaking changes, e.g. saved data (localStorage or the Supabase schema) that old versions can't read
 
-Cut a release only when asked, from a clean `main`:
+**Every merge to `main` gets a new version**, because every push to `main` deploys:
 
-```bash
-bun pm version minor          # or patch / major: bumps package.json, commits, tags vX.Y.Z
-git push fork main --follow-tags
-gh release create vX.Y.Z --notes "..." --repo Gschrooyen/alchemy-factory-planner
-```
+- Changes reach `main` through a PR from a branch, never by pushing to `main` directly.
+- Every PR bumps the version in `package.json`, without committing or tagging:
+  ```bash
+  bun pm version patch --no-git-tag-version   # or minor / major
+  ```
+  The required **Version bump** check (`scripts/check-version-bump.ts`) fails until the PR's version is higher than `main`'s. Branches must be up to date with `main`, so two PRs can't ship the same version.
+- After the merge, `.github/workflows/release.yml` tags `vX.Y.Z` and publishes a GitHub release with generated notes. It fails loudly if `main` moves without a new version.
+- Merging is the maintainer's call: open the PR, don't merge it.
 
-Release notes are written for players: what's new, fixed or changed, not commit-level detail.
+When asked to polish a release, rewrite its notes for players (`gh release edit vX.Y.Z --notes-file ...`): what's new, fixed or changed, not commit-level detail.
 
 ### Remotes
 

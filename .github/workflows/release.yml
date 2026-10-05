@@ -1,0 +1,35 @@
+name: Release
+
+# Every push to main deploys (Vercel), so every push to main gets its own tag and release.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tag and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tag vX.Y.Z and publish a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$(jq -r .version package.json)"
+          released=$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null || true)
+          if [ "$released" = "$GITHUB_SHA" ]; then
+            echo "$tag is already released at this commit (re-run)."
+          elif [ -n "$released" ]; then
+            echo "::error::$tag was already released at ${released:0:7}, but main moved to ${GITHUB_SHA:0:7} without a version bump. This deploy has no version of its own: bump package.json in a PR (bun pm version patch|minor|major --no-git-tag-version)."
+            exit 1
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
+          fi

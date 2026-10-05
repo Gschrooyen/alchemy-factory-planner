@@ -49,15 +49,12 @@ It creates two throwaway users, tries to read, change and delete across accounts
 
 ## Releasing
 
-Versions follow [semver](https://semver.org) and are shown in the footer (from `package.json`). To cut a release from a clean `main`:
+Versions follow [semver](https://semver.org) and are shown in the footer (from `package.json`). Every merge to `main` deploys, so every merge ships a new version:
 
-```bash
-bun pm version minor          # or patch / major: bumps package.json, commits, tags vX.Y.Z
-git push fork main --follow-tags
-gh release create vX.Y.Z --generate-notes --repo Gschrooyen/alchemy-factory-planner
-```
+1. In your PR, bump the version: `bun pm version patch --no-git-tag-version` (or `minor` for features, `major` for breaking changes). The required **Version bump** check blocks the merge until you do.
+2. Merge. Vercel deploys, and the **Release** workflow tags `vX.Y.Z` and publishes a GitHub release with generated notes.
 
-The push deploys to Vercel. The footer version links to the release notes.
+The footer version links to that release.
 
 ## License
 
