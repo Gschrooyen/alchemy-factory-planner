@@ -5,7 +5,22 @@
     "category": "production",
     "heat_consuming_speed": 270,
     "parent": "stone-stove",
-    "slots_required": 6
+    "slots_required": 6,
+    "description": "An advanced alembic that requires a recipe. It can only be built on a furnace, with two conveyor belt inputs, one pipeline input and one pipeline output.",
+    "build_cost": [
+      {
+        "id": "steelingot",
+        "count": 8
+      },
+      {
+        "id": "glass",
+        "count": 16
+      },
+      {
+        "id": "copperbearing",
+        "count": 4
+      }
+    ]
   },
   {
     "id": "advanced-athanor",
@@ -13,27 +28,86 @@
     "category": "production",
     "heat_consuming_speed": 360,
     "parent": "stone-stove",
-    "slots_required": 6
+    "slots_required": 6,
+    "description": "An upgraded Athanor. Add catalysts to adjust recipe outcomes. It is compatible with standard Athanor recipes; when using them, heat consumption remains the same as a standard Athanor.",
+    "build_cost": [
+      {
+        "id": "steelingot",
+        "count": 12
+      },
+      {
+        "id": "copperingot",
+        "count": 12
+      }
+    ]
   },
   {
     "id": "advanced-blender",
     "name": "Advanced Blender",
-    "category": "production"
+    "category": "production",
+    "description": "An advanced blender that requires a recipe. It has two conveyor belt inputs, one pipeline input and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "steelingot",
+        "count": 8
+      },
+      {
+        "id": "glass",
+        "count": 16
+      },
+      {
+        "id": "copperbearing",
+        "count": 4
+      }
+    ]
   },
   {
     "id": "advanced-cauldron",
     "name": "Advanced Cauldron",
-    "category": "production"
+    "category": "production",
+    "description": "A cauldron forged from pure silver. Less a tool than a mark of true mastery in the alchemical arts.",
+    "build_cost": [
+      {
+        "id": "silveringot",
+        "count": 20
+      }
+    ]
   },
   {
     "id": "advanced-shaper",
     "name": "Advanced Shaper",
-    "category": "production"
+    "category": "production",
+    "description": "An advanced shaper that requires a recipe. It has five conveyor belt inputs, two pipeline inputs and one conveyor belt output, and the product is crafted gradually as materials are fed in.",
+    "build_cost": [
+      {
+        "id": "steelingot",
+        "count": 8
+      },
+      {
+        "id": "steelgear",
+        "count": 16
+      }
+    ]
   },
   {
     "id": "aether-shaper",
     "name": "Arcane Shaper",
-    "category": "production"
+    "category": "production",
+    "description": "An advanced shaper that requires a recipe. It has nine conveyor belt inputs and one conveyor belt output, and the product is crafted gradually as materials are fed in.",
+    "build_cost": [
+      {
+        "id": "goldingot",
+        "count": 12
+      },
+      {
+        "id": "steelgear",
+        "count": 24
+      },
+      {
+        "id": "copperbearing",
+        "count": 18
+      }
+    ]
   },
   {
     "id": "alembic",
@@ -41,17 +115,62 @@
     "category": "production",
     "heat_consuming_speed": 108,
     "parent": "stone-stove",
-    "slots_required": 1
+    "slots_required": 1,
+    "description": "An alembic that requires a recipe. It can only be built on a furnace, with one conveyor belt input, one pipeline input and one pipeline output.",
+    "build_cost": [
+      {
+        "id": "steelingot",
+        "count": 4
+      },
+      {
+        "id": "copperingot",
+        "count": 4
+      },
+      {
+        "id": "glass",
+        "count": 8
+      }
+    ]
   },
   {
     "id": "arcane-processor",
     "name": "Arcane Processor",
-    "category": "production"
+    "category": "production",
+    "description": "An advanced processing device that requires a recipe. It has one conveyor belt input and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "steelingot",
+        "count": 6
+      },
+      {
+        "id": "steelgear",
+        "count": 12
+      },
+      {
+        "id": "lapislazuli",
+        "count": 2
+      }
+    ]
   },
   {
     "id": "assembler",
     "name": "Assembler",
-    "category": "production"
+    "category": "production",
+    "description": "An advanced processing device that requires a recipe. It has two conveyor belt inputs and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "woodboard",
+        "count": 10
+      },
+      {
+        "id": "largewoodgear",
+        "count": 5
+      },
+      {
+        "id": "woodgear",
+        "count": 15
+      }
+    ]
   },
   {
     "id": "athanor",
@@ -59,27 +178,78 @@
     "category": "production",
     "heat_consuming_speed": 32,
     "parent": "stone-stove",
-    "slots_required": 6
+    "slots_required": 6,
+    "description": "An advanced athanor with a chance of failure. It has two conveyor outputs, and failed products go through the second output.",
+    "build_cost": [
+      {
+        "id": "ironingot",
+        "count": 10
+      },
+      {
+        "id": "nails",
+        "count": 15
+      }
+    ]
   },
   {
     "id": "bank-portal",
     "name": "Bank Portal",
-    "category": "raw material production"
+    "category": "raw material production",
+    "description": "A device used to convert back and forth between two different coins, with the ability to set the amount of coins output each time.",
+    "build_cost": [
+      {
+        "id": "portalsigil",
+        "count": 1
+      },
+      {
+        "id": "ironingot",
+        "count": 5
+      }
+    ]
   },
   {
     "id": "blender",
     "name": "Blender",
-    "category": "production"
+    "category": "production",
+    "description": "An advanced Blender that requires a recipe. It has one conveyor belt input, one pipeline input and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "ironingot",
+        "count": 8
+      },
+      {
+        "id": "glass",
+        "count": 8
+      }
+    ]
   },
   {
     "id": "brew-barrel",
     "name": "Brew Barrel",
-    "category": "production"
+    "category": "production",
+    "description": "Blends different liquids into unique beverages, then serves the finished products to customers.",
+    "build_cost": [
+      {
+        "id": "woodboard",
+        "count": 30
+      },
+      {
+        "id": "ironingot",
+        "count": 10
+      }
+    ]
   },
   {
     "id": "cauldron",
     "name": "Cauldron",
-    "category": "production"
+    "category": "production",
+    "description": "A traditional alchemy device that takes any three materials and refines them into one unknown material. Some old alchemists still insist on using it.",
+    "build_cost": [
+      {
+        "id": "bronzeingot",
+        "count": 20
+      }
+    ]
   },
   {
     "id": "crucible",
@@ -87,32 +257,90 @@
     "category": "production",
     "heat_consuming_speed": 4,
     "parent": "stone-stove",
-    "slots_required": 3
+    "slots_required": 3,
+    "description": "Automated heating device that can only be built on a furnace, with one conveyor belt input and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "stone",
+        "count": 4
+      }
+    ]
   },
   {
     "id": "dispatch-portal",
     "name": "Dispatch Portal",
-    "category": "raw material production"
+    "category": "raw material production",
+    "description": "A portal that can send goods to the purchaser and receive payment. The corresponding purchase contract must first be unlocked.",
+    "build_cost": [
+      {
+        "id": "portalsigil",
+        "count": 1
+      },
+      {
+        "id": "woodboard",
+        "count": 5
+      }
+    ]
   },
   {
     "id": "enhanced-grinder",
     "name": "Enhanced Grinder",
-    "category": "automated processing"
+    "category": "automated processing",
+    "description": "A more efficient grinder, working at twice the speed of a regular one.",
+    "build_cost": [
+      {
+        "id": "woodboard",
+        "count": 12
+      },
+      {
+        "id": "steelgear",
+        "count": 3
+      }
+    ]
   },
   {
     "id": "extractor",
     "name": "Extractor",
-    "category": "production"
+    "category": "production",
+    "description": "Automated extraction device with one conveyor belt input and one pipeline output.",
+    "build_cost": [
+      {
+        "id": "ironingot",
+        "count": 5
+      },
+      {
+        "id": "glass",
+        "count": 5
+      }
+    ]
   },
   {
     "id": "grand-portal",
     "name": "Grand Portal",
-    "category": "raw material production"
+    "category": "raw material production",
+    "description": "A portal connecting distant cities, allowing customers from across the land to quickly reach the shop. Building more will not increase customer traffic.",
+    "build_cost": [
+      {
+        "id": "adportalsigil",
+        "count": 1
+      },
+      {
+        "id": "stone",
+        "count": 20
+      }
+    ]
   },
   {
     "id": "grinder",
     "name": "Grinder",
-    "category": "automated processing"
+    "category": "automated processing",
+    "description": "Automated grinding device with one conveyor belt input and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "woodboard",
+        "count": 6
+      }
+    ]
   },
   {
     "id": "iron-smelter",
@@ -120,7 +348,14 @@
     "category": "raw material production",
     "heat_consuming_speed": 9,
     "parent": "stone-stove",
-    "slots_required": 9
+    "slots_required": 9,
+    "description": "It consumes iron ore to smelt iron ingots and can only be built on a furnace and has a conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "stone",
+        "count": 15
+      }
+    ]
   },
   {
     "id": "kiln",
@@ -128,17 +363,54 @@
     "category": "production",
     "heat_consuming_speed": 15,
     "parent": "stone-stove",
-    "slots_required": 6
+    "slots_required": 6,
+    "description": "An advanced heating device that requires a recipe. It can only be built on a furnace, with one conveyor belt input and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "stone",
+        "count": 20
+      },
+      {
+        "id": "clay",
+        "count": 10
+      }
+    ]
   },
   {
     "id": "nursery",
     "name": "Nursery",
-    "category": "raw material production"
+    "category": "raw material production",
+    "description": "An automatic herbal production device. Spread seeds and add fertilizer to grow the corresponding herbs.",
+    "build_cost": [
+      {
+        "id": "ironingot",
+        "count": 8
+      },
+      {
+        "id": "clay",
+        "count": 4
+      }
+    ]
   },
   {
     "id": "omni-machine",
     "name": "Advanced Assembler",
-    "category": "production"
+    "category": "production",
+    "description": "An advanced processing device that requires a recipe. It has three conveyor belt inputs, one pipeline input and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "steelingot",
+        "count": 12
+      },
+      {
+        "id": "steelgear",
+        "count": 16
+      },
+      {
+        "id": "copperbearing",
+        "count": 8
+      }
+    ]
   },
   {
     "id": "paradox-crucible",
@@ -146,37 +418,118 @@
     "category": "production",
     "heat_consuming_speed": 1200,
     "parent": "stone-stove",
-    "slots_required": 9
+    "slots_required": 9,
+    "description": "A passive heating device that can refine any material into oblivion essence. Different materials will take different amounts of time to refine.",
+    "build_cost": [
+      {
+        "id": "steelingot",
+        "count": 8
+      },
+      {
+        "id": "copperingot",
+        "count": 8
+      },
+      {
+        "id": "bronzerivet",
+        "count": 16
+      }
+    ]
   },
   {
     "id": "portal-input",
     "name": "Portal (Input)",
-    "category": "raw material production"
+    "category": "raw material production",
+    "description": "A portal capable of receiving any item input.",
+    "build_cost": [
+      {
+        "id": "portalsigil",
+        "count": 1
+      },
+      {
+        "id": "woodboard",
+        "count": 5
+      }
+    ]
   },
   {
     "id": "portal-output",
     "name": "Portal (Output)",
-    "category": "raw material production"
+    "category": "raw material production",
+    "description": "A portal capable of outputting any items.",
+    "build_cost": [
+      {
+        "id": "portalsigil",
+        "count": 1
+      },
+      {
+        "id": "woodboard",
+        "count": 5
+      }
+    ]
   },
   {
     "id": "processor",
     "name": "Processor",
-    "category": "production"
+    "category": "production",
+    "description": "An advanced processing device that requires a recipe. It has one conveyor belt input and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "woodboard",
+        "count": 12
+      },
+      {
+        "id": "largewoodgear",
+        "count": 3
+      }
+    ]
   },
   {
     "id": "purchasing-portal",
     "name": "Purchasing Portal",
-    "category": "raw material production"
+    "category": "raw material production",
+    "description": "A purchasing portal available only to senior members of the Alchemy Association. Input the required money to acquire the corresponding items.",
+    "build_cost": [
+      {
+        "id": "portalsigil",
+        "count": 1
+      },
+      {
+        "id": "woodboard",
+        "count": 5
+      }
+    ]
   },
   {
     "id": "refiner",
     "name": "Refiner",
-    "category": "production"
+    "category": "production",
+    "description": "An automated refining device with two conveyor belt inputs and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "woodboard",
+        "count": 8
+      },
+      {
+        "id": "steelgear",
+        "count": 4
+      }
+    ]
   },
   {
     "id": "shaper",
     "name": "Shaper",
-    "category": "production"
+    "category": "production",
+    "description": "An advanced shaper that requires a recipe. It has six conveyor belt inputs and one conveyor belt output, and the product is crafted gradually as materials are fed in.",
+    "build_cost": [
+      {
+        "id": "ironingot",
+        "count": 8
+      },
+      {
+        "id": "nails",
+        "count": 16
+      }
+    ]
   },
   {
     "id": "stackable-crucible",
@@ -184,36 +537,94 @@
     "category": "production",
     "heat_consuming_speed": 6,
     "parent": "stone-stove",
-    "slots_required": 3
+    "slots_required": 3,
+    "description": "An automated heater that transfers heat to the device above it.",
+    "build_cost": [
+      {
+        "id": "stone",
+        "count": 6
+      },
+      {
+        "id": "steelingot",
+        "count": 2
+      },
+      {
+        "id": "bronzerivet",
+        "count": 2
+      }
+    ]
   },
   {
     "id": "steam-heater",
     "name": "Steam Heating Pad",
-    "category": "production"
+    "category": "production",
+    "description": "A fuel-free heating station. Feed it steam to heat the equipment above.",
+    "build_cost": [
+      {
+        "id": "steelingot",
+        "count": 3
+      },
+      {
+        "id": "copperingot",
+        "count": 3
+      }
+    ]
   },
   {
     "id": "stone-crusher",
     "name": "Stone Crusher",
-    "category": "raw material production"
+    "category": "raw material production",
+    "description": "It consumes limestone to produce rubbles, and has one conveyor belt input and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "woodboard",
+        "count": 6
+      },
+      {
+        "id": "largewoodgear",
+        "count": 6
+      }
+    ]
   },
   {
     "id": "stone-furnace",
     "name": "Blast Furnace",
     "category": "production",
     "heat_self": 4,
-    "slots": 42
+    "slots": 42,
+    "description": "An advanced heating device with a larger heating area. It can automatically refill fuel through a conveyor belt.",
+    "build_cost": [
+      {
+        "id": "brick",
+        "count": 30
+      }
+    ]
   },
   {
     "id": "stone-stove",
     "name": "Stone Furnace",
     "category": "production",
     "heat_self": 1,
-    "slots": 9
+    "slots": 9,
+    "description": "A simple heating device. After adding fuel, the devices above the stone furnace can be heated. Fuel can be automatically refilled through a conveyor belt.",
+    "build_cost": [
+      {
+        "id": "stone",
+        "count": 20
+      }
+    ]
   },
   {
     "id": "table-saw",
     "name": "Table Saw",
-    "category": "raw material production"
+    "category": "raw material production",
+    "description": "It consumes Logs to produce planks, with one conveyor belt input and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "woodboard",
+        "count": 5
+      }
+    ]
   },
   {
     "id": "thermal-extractor",
@@ -221,12 +632,38 @@
     "category": "production",
     "heat_consuming_speed": 80,
     "parent": "stone-stove",
-    "slots_required": 6
+    "slots_required": 6,
+    "description": "An advanced Extractor with an added heating module. The higher up it's built, the greater its output.",
+    "build_cost": [
+      {
+        "id": "steelingot",
+        "count": 5
+      },
+      {
+        "id": "glass",
+        "count": 5
+      }
+    ]
   },
   {
     "id": "world-tree-nursery",
     "name": "World Tree Nursery",
-    "category": "raw material production"
+    "category": "raw material production",
+    "description": "A Nursery used specially to grow a World Tree. It consumes Fertilizer at a set rate and has nine conveyor belt inputs and one conveyor belt output.",
+    "build_cost": [
+      {
+        "id": "worldtreeseed",
+        "count": 1
+      },
+      {
+        "id": "clay",
+        "count": 100
+      },
+      {
+        "id": "ironingot",
+        "count": 100
+      }
+    ]
   },
   {
     "id": "miniature-world-tree",

@@ -55,6 +55,7 @@ interface RemoteBuilding {
   desc?: string;
   hc?: number; // heating capacity
   hide?: boolean;
+  costList?: { name: string; qty: number }[]; // materials to build it
   buildingTags?: {
     ParentTags?: string[];
     GameplayTags?: string[];
@@ -71,6 +72,8 @@ interface LocalDevice {
   slots?: number;
   parent?: string;
   slots_required?: number;
+  description?: string;
+  build_cost?: { id: string; count: number }[];
 }
 
 interface RemoteCrafting {
@@ -360,7 +363,7 @@ function determineDeviceCategory(
   return 'production';
 }
 
-function transformBuildings(
+export function transformBuildings(
   remoteBuildings: RemoteBuilding[],
   recipes: RemoteCrafting[],
   deviceMetadata: any = { furnaces: {}, heated_devices: {} }
@@ -403,6 +406,12 @@ function transformBuildings(
         name: building.name,
         category: determineDeviceCategory(building, recipes),
       };
+
+      if (building.desc) device.description = building.desc;
+      // Cost items are referenced by idName; local item ids are the lowercased idName
+      if (building.costList?.length) {
+        device.build_cost = building.costList.map((c) => ({ id: c.name.toLowerCase(), count: c.qty }));
+      }
 
       // Map heating capacity to heat_consuming_speed
       if (building.hc !== undefined && building.hc > 0) {
@@ -604,4 +613,4 @@ async function main() {
   }
 }
 
-main();
+if (import.meta.main) main();
