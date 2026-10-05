@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Recipe } from "@/engine/types";
 import { getItemByName } from "@/lib/codex/entity-configs/items.config";
+import { getDeviceById } from "@/lib/codex/entity-configs/devices.config";
 import { OrnatePanel } from "@/components/ui/OrnatePanel";
 import { ArrowRight, Clock, Cog } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -63,7 +64,9 @@ export function RecipeCard({ recipe, highlightItem }: RecipeCardProps) {
         <div className="flex items-center justify-between text-sm">
           <div className="flex items-center gap-2 text-[var(--text-secondary)]">
             <Cog className="w-4 h-4 text-[var(--accent-purple)]" />
-            <span>{recipe.crafted_in}</span>
+            <Link href={`/devices/${recipe.crafted_in}`} className="hover:text-[var(--accent-gold)] transition-colors">
+              {getDeviceById(recipe.crafted_in)?.name ?? recipe.crafted_in}
+            </Link>
           </div>
           <div className="flex items-center gap-1 text-[var(--text-muted)]">
             <Clock className="w-3.5 h-3.5" />

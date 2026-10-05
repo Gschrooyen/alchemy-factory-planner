@@ -71,6 +71,8 @@ export interface Device {
   slots?: number; // For furnaces: number of device slots available
   parent?: string; // For heated devices: parent furnace device ID
   slots_required?: number; // For heated devices: slots consumed in parent
+  description?: string; // In-game description
+  build_cost?: { id: string; count: number }[]; // Materials to build one (item ids)
 }
 
 export interface ProductionNode {

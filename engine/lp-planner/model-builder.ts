@@ -7,7 +7,7 @@ import { getOutputMultiplier } from "./efficiency";
 import { cauldronRecipeFor } from "@/lib/cauldron";
 import { paradoxRecipeFor } from "@/lib/paradox";
 import { suggestBrews } from "./auto-brews";
-import { normalizeItemId, getItem as getItemById, getAllItems, getEffectiveRecipeTime, resolveMachineName, isNurseryMachine, recipeNutrients } from "../item-utils";
+import { normalizeItemId, getItem as getItemById, getAllItems, getEffectiveRecipeTime, resolveMachineName, isNurseryMachine, recipeNutrients, ENHANCED_GRINDER_SPEED } from "../item-utils";
 
 // Pre-index data
 const itemsMap = new Map<string, Item>();
@@ -17,8 +17,6 @@ const allRecipes: Recipe[] = recipesData as unknown as Recipe[];
 // Cauldron overrides are synthesised per solve; the interpreter looks them up by id afterwards
 const syntheticRecipes = new Map<string, Recipe>();
 
-// Enhanced Grinder: "working at twice the speed of a regular one" (buildings.json), same recipes, no heat
-const ENHANCED_GRINDER_SPEED = 2;
 
 /** The recipe set for this config: normal recipes, minus the primary producers of any item the user
  *  chose to brew in a cauldron, plus one synthetic cauldron recipe per such item. */

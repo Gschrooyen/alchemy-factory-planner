@@ -65,6 +65,9 @@ export function getAllItems(): Item[] {
 export const TREE_NUTRIENTS_PER_SEC: Record<string, number> = { "world-tree-nursery": 40000, "miniature-world-tree": 20000 };
 export const isNurseryMachine = (name: string) => /^(nursery|world[ -]tree[ -]nursery|miniature[ -]world[ -]tree)$/.test(name);
 
+// Enhanced Grinder: "working at twice the speed of a regular one" (buildings.json), same recipes, no heat
+export const ENHANCED_GRINDER_SPEED = 2;
+
 /** Nutrients one activation of a nursery recipe needs: every output's required_nutrients times its count. */
 export function recipeNutrients(recipe: Recipe): number {
   return recipe.outputs.reduce((sum, o) => {
