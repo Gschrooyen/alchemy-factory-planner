@@ -77,6 +77,7 @@
       3
     ],
     "repeatStep": 3,
+    "maxRepeats": 80,
     "modType": "Add"
   },
   "FuelEfficiency": {
@@ -125,6 +126,7 @@
       5
     ],
     "repeatStep": 5,
+    "maxRepeats": 80,
     "modType": "Increase"
   },
   "RestockSpeed": {
@@ -158,6 +160,7 @@
       3
     ],
     "repeatStep": 3,
+    "maxRepeats": 80,
     "modType": "Add"
   },
   "CheckoutSpeed": {
@@ -302,6 +305,7 @@
       3
     ],
     "repeatStep": 3,
+    "maxRepeats": 80,
     "modType": "Add"
   },
   "CannonSpeed": {
@@ -323,6 +327,7 @@
       6
     ],
     "repeatStep": 6,
+    "maxRepeats": 80,
     "modType": "Add"
   },
   "QuestProfit": {
@@ -431,6 +436,7 @@
       5
     ],
     "repeatStep": 5,
+    "maxRepeats": 80,
     "modType": "Increase"
   },
   "GeneralGoodsProfit": {

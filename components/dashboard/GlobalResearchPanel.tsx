@@ -42,7 +42,7 @@ export function GlobalResearchPanel() {
                     onChange={(v: number) => setResearch("logisticsEfficiency", v)}
                     color="text-cyan-400"
                     description={`Belt Speed ${attributeValue("ConveyerSpeed", research.logisticsEfficiency)}/min`}
-                    maxLevel={92}
+                    maxLevel={maxAttributeLevel("ConveyerSpeed")}
                 />
                 <ResearchControl
                     label="Throwing"
@@ -51,6 +51,7 @@ export function GlobalResearchPanel() {
                     onChange={(v: number) => setResearch("throwingEfficiency", v)}
                     color="text-sky-400"
                     description={`Catapult Rate ${attributeValue("CatapultSpeed", research.throwingEfficiency)}/min`}
+                    maxLevel={maxAttributeLevel("CatapultSpeed")}
                 />
                 <ResearchControl
                     label="Factory Eff"
@@ -59,7 +60,7 @@ export function GlobalResearchPanel() {
                     onChange={(v: number) => setResearch("factoryEfficiency", v)}
                     color="text-[var(--accent-gold)]"
                     description={`Prod Speed ${pct(attributeValue("FactorySpeed", research.factoryEfficiency))}%`}
-                    maxLevel={92}
+                    maxLevel={maxAttributeLevel("FactorySpeed")}
                 />
                 <ResearchControl
                     label="Alchemy"
@@ -68,6 +69,7 @@ export function GlobalResearchPanel() {
                     onChange={(v: number) => setResearch("alchemySkill", v)}
                     color="text-violet-400"
                     description={`Extractor Output ${pct(attributeValue("ExtractorSkill", research.alchemySkill))}%`}
+                    maxLevel={maxAttributeLevel("ExtractorSkill")}
                 />
                 <ResearchControl
                     label="Fuel Eff"
@@ -76,6 +78,7 @@ export function GlobalResearchPanel() {
                     onChange={(v: number) => setResearch("fuelEfficiency", v)}
                     color="text-orange-400"
                     description={`Fuel Heat ${pct(attributeValue("FuelEfficiency", research.fuelEfficiency))}%`}
+                    maxLevel={maxAttributeLevel("FuelEfficiency")}
                 />
                 <ResearchControl
                     label="Fertilizer"
@@ -84,6 +87,7 @@ export function GlobalResearchPanel() {
                     onChange={(v: number) => setResearch("fertilizerEfficiency", v)}
                     color="text-emerald-400"
                     description={`Nutrient Value ${pct(attributeValue("FertilizerEfficiency", research.fertilizerEfficiency))}%`}
+                    maxLevel={maxAttributeLevel("FertilizerEfficiency")}
                 />
                 <ResearchControl
                     label="Sales"
@@ -110,6 +114,7 @@ export function GlobalResearchPanel() {
                     onChange={(v: number) => setResearch("customerMgmt", v)}
                     color="text-rose-400"
                     description={`Quest Rewards ${pct(attributeValue("QuestProfit", research.customerMgmt))}%`}
+                    maxLevel={maxAttributeLevel("QuestProfit")}
                 />
                 <ResearchControl
                     label="Relic"
@@ -118,6 +123,7 @@ export function GlobalResearchPanel() {
                     onChange={(v: number) => setResearch("relicKnowledge", v)}
                     color="text-indigo-400"
                     description={`Withdrawal Bonus +${pct(attributeValue("AltarEfficiency", research.relicKnowledge))}%`}
+                    maxLevel={maxAttributeLevel("AltarEfficiency")}
                 />
             </div>
         </OrnatePanel>

@@ -35,6 +35,21 @@ describe("Attribute ladders", () => {
     expect(attributeValue("ContractNum", 99)).toBe(300);
   });
 
+  test("capped repeats stop at level 92 (12 levels + 80 repeats, DT_UpgradePoints)", () => {
+    for (const name of ["FactorySpeed", "ConveyerSpeed", "CatapultSpeed"] as const) {
+      expect(maxAttributeLevel(name)).toBe(92);
+    }
+    expect(attributeMultiplier("FactorySpeed", 92)).toBeCloseTo(8);
+    expect(attributeMultiplier("FactorySpeed", 200)).toBeCloseTo(8);
+    expect(attributeValue("ConveyerSpeed", 92)).toBe(480);
+    expect(attributeValue("ConveyerSpeed", 93)).toBe(480);
+  });
+
+  test("uncapped repeats have no max level", () => {
+    expect(maxAttributeLevel("FuelEfficiency")).toBeUndefined();
+    expect(attributeValue("FuelEfficiency", 200)).toBe(2100);
+  });
+
   test("negative and fractional levels are clamped/floored", () => {
     expect(attributeValue("FactorySpeed", -3)).toBe(100);
     expect(attributeValue("FactorySpeed", 1.9)).toBe(125);

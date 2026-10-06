@@ -7,13 +7,15 @@ import attributesData from "../data/attributes.json";
  *
  * Both Add and Increase modifications are additive on top of the base value; Increase simply
  * marks an attribute whose unit is a percentage (FactorySpeed 100 -> 125 at level 1 = 1.25x).
- * The top level of most ladders is repeatable, so levels past the table keep applying `repeatStep`.
+ * The top level of most ladders is repeatable, so levels past the table keep applying `repeatStep`,
+ * up to `maxRepeats` times when the game caps it (DT_UpgradePoints MaxUnlimitedLevel).
  */
 export interface AttributeLadder {
   base: number;
   unit: string;
   steps: number[];
   repeatStep: number | null;
+  maxRepeats?: number;
   modType?: string;
 }
 
@@ -26,7 +28,7 @@ export function attributeValue(name: AttributeName, level: number): number {
   const ladder = ladders[name as string];
   if (!ladder) throw new Error(`Unknown attribute: ${name}`);
 
-  const capped = Math.max(0, Math.floor(level));
+  const capped = Math.min(Math.max(0, Math.floor(level)), maxAttributeLevel(name) ?? Infinity);
   const within = Math.min(capped, ladder.steps.length);
   let value = ladder.base;
   for (let i = 0; i < within; i++) value += ladder.steps[i];
@@ -41,10 +43,12 @@ export function attributeMultiplier(name: AttributeName, level: number): number 
   return attributeValue(name, level) / 100;
 }
 
-/** Highest level that still changes an attribute; levels beyond it only help if the top step repeats. */
-export function maxAttributeLevel(name: AttributeName): number {
+/** Highest level the game allows for an attribute's research, or undefined when it repeats forever. */
+export function maxAttributeLevel(name: AttributeName): number | undefined {
   const ladder = ladders[name as string];
-  return ladder ? ladder.steps.length : 0;
+  if (!ladder) return 0;
+  if (ladder.repeatStep === null) return ladder.steps.length;
+  return ladder.maxRepeats === undefined ? undefined : ladder.steps.length - 1 + ladder.maxRepeats;
 }
 
 export function getAttributeLadder(name: AttributeName): AttributeLadder | undefined {
