@@ -38,20 +38,17 @@ function unitCosts(recipes: Recipe[], config: PlannerConfig, ctx: EfficiencyCont
   const cost = new Map<string, number>();
   const machinePrice = machinePriceFor(config, metric);
   const fert = ctx.selectedFertilizer ? getItem(ctx.selectedFertilizer) : undefined;
-  const fertUnit = () => (fert ? cost.get(fert.id) ?? Infinity : Infinity);
+  // Fertilizer from outside the factory is free here, as in the LP (as an ingredient it still costs what it takes to make)
+  const fertUnit = () => (!fert ? Infinity : !ctx.selfFertilizer ? 0 : cost.get(fert.id) ?? Infinity);
 
   // Raw: what the LP can actually buy, at the LP's price (machines metric: raws are free of machines).
-  // That's items no recipe makes, plus fuel/fertilizer when not self-produced. Nearly every item has a
+  // That's items no recipe makes. Nearly every item has a
   // `cost` (its value), so treating all of them as buyable made every item "free" in machines mode (no
   // brew could ever win) and capped intermediates at their value in cost mode.
   const produced = new Set(recipes.flatMap((r) => r.outputs.map(outId)));
-  const fuelId = normalizeItemId(ctx.selectedFuel);
   for (const item of getAllItems()) {
     if (item.hidden) continue;
-    const forcedRaw = (!ctx.selfFuel && item.id === fuelId) || (!ctx.selfFertilizer && item.id === fert?.id);
-    // Fuel/fertilizer from outside the factory is free here, as in the LP
-    if (forcedRaw) cost.set(item.id, 0);
-    else if (!produced.has(item.id)) cost.set(item.id, metric === "cost" ? item.cost || item.base_cost || 1000 : 0);
+    if (!produced.has(item.id)) cost.set(item.id, metric === "cost" ? item.cost || item.base_cost || 1000 : 0);
   }
   // User-supplied resources are (nearly) free either way
   for (const res of config.availableResources ?? []) cost.set(normalizeItemId(res.item), 0);

@@ -1136,3 +1136,27 @@ describe("Supplied resources are used before anything is made or bought", () => 
     expect(ruby.rate).toBeLessThanOrEqual(2.4 + 1e-6);
   });
 });
+
+describe("Fuel from outside the factory is only bought for heat", () => {
+  test("Plank as bought fuel is still made when a recipe uses it as an ingredient", () => {
+    const config = {
+      targets: [{ item: "Charcoal", rate: 10 }], availableResources: [],
+      fuelEfficiency: 0, alchemySkill: 0, factoryEfficiency: 0, logisticsEfficiency: 0, throwingEfficiency: 0,
+      fertilizerEfficiency: 0, salesAbility: 0, negotiationSkill: 0, customerMgmt: 0, relicKnowledge: 0,
+      selectedFuel: "Plank", selfFuel: false, optimizeFor: "cost" as const,
+    } as PlannerConfig;
+    const nodes: ProductionNode[] = [];
+    const seen = new Set<ProductionNode>();
+    const walk = (n: ProductionNode) => {
+      if (seen.has(n)) return;
+      seen.add(n);
+      nodes.push(n);
+      n.inputs.forEach(walk);
+    };
+    calculateProductionLP(config).forEach(walk);
+    const plank = (raw: boolean) => nodes.filter((n) => n.itemName === "Plank" && !!n.isRaw === raw && !n.isConsumptionReference)
+      .reduce((sum, n) => sum + n.rate, 0);
+    expect(plank(false)).toBeGreaterThanOrEqual(10 - 1e-6); // the Charcoal ingredient is made from Logs
+    expect(plank(true)).toBeLessThan(10); // only the crucible's heat is bought
+  });
+});
