@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { generateGraph } from "./graphMapper";
 import { calculateProductionLP } from "../engine/lp-planner/index";
-import { PlannerConfig } from "../engine/types";
+import { PlannerConfig, ProductionNode } from "../engine/types";
 
 describe("Graph Mapper", () => {
   test("should generate correct nodes for simple production", async () => {
@@ -265,5 +265,20 @@ describe("Graph Mapper - split target", () => {
     const targets = nodes.filter((n) => (n.data as { isTarget?: boolean }).isTarget);
     expect(targets).toHaveLength(1);
     expect((targets[0].data as { rate: number }).rate).toBeCloseTo(100, 3);
+  });
+});
+
+describe("Graph Mapper - loops", () => {
+  test("the edge that closes a production loop is drawn (Copper Ingot -> Copper Bearing -> ... -> Copper Ingot)", async () => {
+    const node = (id: string, itemName: string): ProductionNode => ({
+      id, itemName, rate: 10, deviceCount: 1, heatConsumption: 0, inputs: [], byproducts: [], beltLimit: 120, isBeltSaturated: false,
+    });
+    const ingot = node("copperingot-prod", "Copper Ingot");
+    const bearing = node("copperbearing-prod", "Copper Bearing");
+    ingot.inputs.push(bearing);
+    bearing.inputs.push(ingot);
+    const { edges } = await generateGraph([ingot]);
+    expect(edges.some((e) => e.source === "copperbearing-prod" && e.target === "copperingot-prod")).toBe(true);
+    expect(edges.some((e) => e.source === "copperingot-prod" && e.target === "copperbearing-prod")).toBe(true);
   });
 });

@@ -87,10 +87,8 @@ export async function generateGraph(
             return;
         }
 
-        // Cycle detection: if we're already visiting this node in current path, stop
-        if (visiting.has(key)) {
-            return;
-        }
+        // Cycle detection (below, after the edge is recorded): a node already on the current path is not
+        // re-traversed, but the edge closing the loop must still be drawn
 
         // Record Relationship & Rate for production nodes (skip if already traversed as consumption ref)
         if (parentName && !traversedConsumptionKeys.has(key)) {
@@ -101,6 +99,10 @@ export async function generateGraph(
             edgeItems.set(edgeKey, node.itemName);
             edgeKinds.set(edgeKey, node.inputKind);
             if (node.planted) plantedEdges.add(edgeKey);
+        }
+
+        if (visiting.has(key)) {
+            return;
         }
 
         // Check if we've already processed this exact object
