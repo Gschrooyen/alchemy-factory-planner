@@ -183,12 +183,16 @@ export function buildLPModel(
     targets.set(itemId, current + t.rate);
   });
 
-  // A fuel/fertilizer that is itself a production target keeps its recipes (the target must be made).
-  // With self-fuel off, the heat side is still bought: raw purchases are pinned to exactly what is burned
-  // (link_boughtfuel == 0), so they can never cover the target itself.
-  const buyTargetFuel = !ctx.selfFuel && targets.has(fuelId);
-  const selfFuel = ctx.selfFuel || targets.has(fuelId);
-  const selfFertilizer = ctx.selfFertilizer || (fertilizerId !== null && targets.has(fertilizerId));
+  // Fuel/fertilizer not self-produced is bought only for heat and nursery feed: raw purchases are pinned to
+  // exactly that use (link_bought_<id> == 0). Its recipes stay, so a target or ingredient use is still made here.
+  const buyFuel = !ctx.selfFuel;
+  const buyFertilizer = !ctx.selfFertilizer && fertilizerId !== null;
+  const boughtLinks = new Set<string>();
+  const addBought = (coeffs: Map<string, number>, itemId: string, perActivation: number) => {
+    const key = `link_bought_${itemId}`;
+    boughtLinks.add(itemId);
+    coeffs.set(key, (coeffs.get(key) ?? 0) - perActivation);
+  };
 
   const minActivations = new Map<string, number>(); // recipeId -> forced minimum activation rate
   const minimizeMachines = config.optimizeFor === "machines";
@@ -198,17 +202,7 @@ export function buildLPModel(
 
   // Build item flow coefficients for each recipe
   activeRecipes(config, ctx).forEach((recipe) => {
-    // Skip recipes that produce fuel/fertilizer if self-production is disabled
-    const recipeProducesFuel = !selfFuel && recipe.outputs.some(output => {
-      const outputId = output.id || normalizeItemId(output.name);
-      return outputId === fuelId;
-    });
-    const recipeProducesFertilizer = !selfFertilizer && fertilizerId && recipe.outputs.some(output => {
-      const outputId = output.id || normalizeItemId(output.name);
-      return outputId === fertilizerId;
-    });
-
-    if (recipeProducesFuel || recipeProducesFertilizer || excludeRecipes.has(recipe.id) || (whole && !whole.recipes.has(recipe.id))) {
+    if (excludeRecipes.has(recipe.id) || (whole && !whole.recipes.has(recipe.id))) {
       return; // Skip this recipe
     }
 
@@ -325,6 +319,7 @@ export function buildLPModel(
 
         const current = recipeCoeffs.get(fertilizerId) || 0;
         recipeCoeffs.set(fertilizerId, current - fertilizerPerActivation);
+        if (buyFertilizer) addBought(recipeCoeffs, fertilizerId, fertilizerPerActivation);
 
         if (!itemConsumedBy.has(fertilizerId)) {
           itemConsumedBy.set(fertilizerId, new Set());
@@ -367,7 +362,7 @@ export function buildLPModel(
 
         const current = recipeCoeffs.get(consumedId) || 0;
         recipeCoeffs.set(consumedId, current - perActivation);
-        if (buyTargetFuel && !config.burnByproducts) recipeCoeffs.set("link_boughtfuel", -perActivation);
+        if (buyFuel && !config.burnByproducts) addBought(recipeCoeffs, fuelId, perActivation);
 
         if (!itemConsumedBy.has(consumedId)) {
           itemConsumedBy.set(consumedId, new Set());
@@ -410,7 +405,7 @@ export function buildLPModel(
       if (item.id !== fuelId && !itemProducedBy.has(item.id)) return;
       allItems.add(item.id);
       variables.set(`burn_${item.id}`, new Map([[item.id, -1], [HEAT_ITEM, item.heat_value * ctx.fuelMultiplier]]));
-      if (buyTargetFuel && item.id === fuelId) variables.get(`burn_${item.id}`)!.set("link_boughtfuel", -1);
+      if (buyFuel && item.id === fuelId) addBought(variables.get(`burn_${item.id}`)!, fuelId, 1);
       itemProducedBy.get(HEAT_ITEM)!.add(`burn_${item.id}`);
     });
   }
@@ -447,11 +442,8 @@ export function buildLPModel(
     const availableRate = availableResources.get(itemName) || 0;
     let isRawMaterial = !itemProducedBy.has(itemName) || itemProducedBy.get(itemName)!.size === 0;
 
-    // Force fuel/fertilizer to be raw materials if self-production is disabled
-    if (!selfFuel && itemName === fuelId) {
-      isRawMaterial = true;
-    }
-    if (!selfFertilizer && fertilizerId && itemName === fertilizerId) {
+    // Fuel/fertilizer not self-produced is always buyable (pinned to its heat/feed use below)
+    if (boughtLinks.has(itemName)) {
       isRawMaterial = true;
     }
 
@@ -498,10 +490,10 @@ export function buildLPModel(
     constraints.set("link_scale", { min: whole.stage === "cost" ? whole.minScale ?? 1 : 1, max: MAX_SCALE });
   }
 
-  if (buyTargetFuel && allItems.has(fuelId)) {
-    variables.set(`raw_${fuelId}`, new Map([[fuelId, 1], ["link_boughtfuel", 1]]));
-    constraints.set("link_boughtfuel", { equal: 0 });
-  }
+  boughtLinks.forEach((itemId) => {
+    variables.get(`raw_${itemId}`)?.set(`link_bought_${itemId}`, 1);
+    constraints.set(`link_bought_${itemId}`, { equal: 0 });
+  });
 
   // Build objective: raw material cost, scaled right down when machine count is what matters
   variables.forEach((_, varName) => {

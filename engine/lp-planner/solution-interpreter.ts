@@ -652,7 +652,8 @@ function linkProductionNodes(
           // Calculate how much comes from production vs raw (if raw is available)
           const rawFertRate = nodes.get(`${fertId}-raw`)?.rate || 0;
           const totalFertAvailable = fertFlow.produced + rawFertRate;
-          const prodPortion = totalFertAvailable > 0 ? fertFlow.produced / totalFertAvailable : 1;
+          // Fertilizer from outside the factory is all bought (the LP pins purchases to nursery feed)
+          const prodPortion = !ctx.selfFertilizer ? 0 : totalFertAvailable > 0 ? fertFlow.produced / totalFertAvailable : 1;
 
           // Fertilizer is produced - link to production nodes
           // Note: We create consumption references even for cycles so they appear in the graph
@@ -688,7 +689,7 @@ function linkProductionNodes(
           // If there's also production, the raw portion is proportional to raw supply
           const rawFertRate = rawNode.rate;
           const totalFertAvailable = (fertFlow?.produced || 0) + rawFertRate;
-          const rawPortion = totalFertAvailable > 0 ? rawFertRate / totalFertAvailable : 1;
+          const rawPortion = !ctx.selfFertilizer || totalFertAvailable <= 0 ? 1 : rawFertRate / totalFertAvailable;
           const rawInputRate = fertilizerRate * rawPortion;
 
           nodeInputs.add(`fertilizer:${rawNodeId}`);
